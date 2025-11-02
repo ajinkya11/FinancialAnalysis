@@ -43,9 +43,15 @@ public class CLI implements Callable<Integer> {
                 return 1;
             }
 
-            File[] pdfFiles = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".pdf"));
+            // Filter PDF files by ticker symbol in filename
+            File[] pdfFiles = dir.listFiles((d, name) ->
+                name.toLowerCase().endsWith(".pdf") &&
+                name.toLowerCase().contains(ticker.toLowerCase())
+            );
+
             if (pdfFiles == null || pdfFiles.length == 0) {
-                System.err.println("Error: No PDF files found in directory: " + directory);
+                System.err.println("Error: No PDF files found for ticker '" + ticker + "' in directory: " + directory);
+                System.err.println("Please ensure PDF filenames contain the ticker symbol (e.g., " + ticker + "_10K_2023.pdf)");
                 return 1;
             }
 
