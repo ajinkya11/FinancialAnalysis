@@ -73,7 +73,10 @@ finanalysis add "Microsoft Corporation" MSFT -d /path/to/msft-10ks -i "Technolog
 
 **PDF File Organization:**
 - Place 10-K PDF files in the `data/10k-pdfs` directory (or specify a custom directory)
-- File naming: Include the year in the filename (e.g., `AAPL_10K_2023.pdf`)
+- **IMPORTANT**: File naming must include the ticker symbol (e.g., `AAPL_10K_2023.pdf`, `aapl-2022.pdf`, `Apple_AAPL_2021.pdf`)
+  - The ticker can appear anywhere in the filename (case-insensitive)
+  - This allows the tool to filter PDFs by company when multiple companies' files are in the same directory
+- Optionally include the year in the filename for clarity (e.g., `AAPL_10K_2023.pdf`)
 - The tool will attempt to extract the fiscal year from the filename or PDF content
 
 #### 2. Analyze a Company
@@ -121,15 +124,19 @@ finanalysis list
 
 1. **Download 10-K PDFs** for companies you want to analyze (from SEC EDGAR or company investor relations pages)
 
-2. **Organize PDFs** by company in separate directories or use a naming convention:
+2. **Organize PDFs** with ticker symbols in filenames (you can put multiple companies in one directory):
 ```
 data/10k-pdfs/
 ├── AAPL_10K_2019.pdf
 ├── AAPL_10K_2020.pdf
 ├── AAPL_10K_2021.pdf
-├── AAPL_10K_2022.pdf
-└── AAPL_10K_2023.pdf
+├── MSFT_10K_2019.pdf
+├── MSFT_10K_2020.pdf
+├── MSFT_10K_2021.pdf
+├── UAL_10K_2022.pdf
+└── JBLU_10K_2022.pdf
 ```
+The tool will automatically filter files by ticker when adding a company.
 
 3. **Add companies**:
 ```bash
