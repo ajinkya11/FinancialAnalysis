@@ -548,16 +548,41 @@ public class XBRLParser {
                 "AircraftMaintenanceCost"
         ));
 
-        stmt.setDepreciation(extractValue(root, ns, companyNs,
+        // Depreciation - try multiple sources
+        double depreciation = extractValue(root, ns, companyNs,
+                "DepreciationAndAmortization",  // Try combined first
+                "DepreciationDepletionAndAmortization",
                 "Depreciation",
-                "DepreciationNonproduction",
-                "DepreciationAndAmortizationDepreciationComponent"
+                "DepreciationExpense",
+                "DepreciationAndAmortizationDepreciationComponent",
+                "DepreciationOfPropertyPlantAndEquipment",
+                "DepreciationNonproduction"
+        );
+
+        double amortization = extractValue(root, ns, companyNs,
+                "AmortizationOfIntangibleAssets",
+                "DepreciationAndAmortizationAmortizationComponent",
+                "AmortizationExpense"
         ));
 
-        stmt.setAmortization(extractValue(root, ns, companyNs,
-                "AmortizationOfIntangibleAssets",
-                "DepreciationAndAmortizationAmortizationComponent"
-        ));
+        // If we got combined D&A but no separate amortization, use the combined value for depreciation
+        // and try to extract separate components
+        if (depreciation > 0 && amortization == 0) {
+            // We might have combined D&A in depreciation field
+            // Try to find separate amortization to split it out
+            double separateAmort = extractValue(root, ns, companyNs,
+                    "AmortizationOfIntangibleAssets",
+                    "AmortizationExpense",
+                    "Amortization"
+            );
+            if (separateAmort > 0 && separateAmort < depreciation) {
+                amortization = separateAmort;
+                depreciation = depreciation - separateAmort;
+            }
+        }
+
+        stmt.setDepreciation(depreciation);
+        stmt.setAmortization(amortization);
 
         stmt.setDistributionExpenses(extractValue(root, ns, companyNs,
                 "SellingAndMarketingExpense",
@@ -574,13 +599,22 @@ public class XBRLParser {
         stmt.setSpecialCharges(extractValue(root, ns, companyNs,
                 "RestructuringCharges",
                 "AssetImpairmentCharges",
-                "SpecialCharges"
+                "SpecialCharges",
+                "SpecialItemsAndOtherCharges"
+        ));
+
+        stmt.setOtherOperatingExpenses(extractValue(root, ns, companyNs,
+                "OtherOperatingExpenses",
+                "OtherCostAndExpenseOperating",
+                "OtherOperatingCostAndExpense",
+                "OtherExpenses"
         ));
 
         stmt.setTotalOperatingExpenses(extractValue(root, ns, companyNs,
                 "OperatingExpenses",
                 "CostsAndExpenses",
-                "OperatingCostsAndExpenses"
+                "OperatingCostsAndExpenses",
+                "CostOfRevenueAndOperatingExpenses"
         ));
 
         // Operating Income
@@ -592,24 +626,32 @@ public class XBRLParser {
         // Non-operating items
         stmt.setInterestExpense(extractValue(root, ns, companyNs,
                 "InterestExpense",
-                "InterestExpenseDebt"
+                "InterestExpenseDebt",
+                "InterestPaid",
+                "InterestAndDebtExpense",
+                "InterestExpenseNet"
         ));
 
         stmt.setInterestIncome(extractValue(root, ns, companyNs,
                 "InterestIncome",
-                "InterestAndDividendIncomeOperating"
+                "InterestIncomeOperating",
+                "InterestAndDividendIncomeOperating",
+                "InvestmentIncomeInterest"
         ));
 
         stmt.setOtherIncomeExpense(extractValue(root, ns, companyNs,
                 "OtherNonoperatingIncomeExpense",
                 "NonoperatingIncomeExpense",
-                "OtherIncomeAndExpenses"
+                "OtherIncomeAndExpenses",
+                "OtherNonoperatingIncome"
         ));
 
         // Taxes
         stmt.setIncomeTaxExpense(extractValue(root, ns, companyNs,
                 "IncomeTaxExpenseBenefit",
-                "IncomeTaxExpense"
+                "IncomeTaxExpense",
+                "IncomeTaxesPaid",
+                "CurrentIncomeTaxExpenseBenefit"
         ));
 
         stmt.setPretaxIncome(extractValue(root, ns, companyNs,
