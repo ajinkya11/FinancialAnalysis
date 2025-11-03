@@ -386,7 +386,8 @@ public class AirlineHTMLParser {
             }
         }
 
-        // If we have passenger and cargo but not other, calculate it
+        // Auto-calculate missing revenue components
+        // Priority 1: If we have passenger and cargo but not other, calculate other
         if (statement.getPassengerRevenue() > 0 && statement.getTotalOperatingRevenue() > 0
             && statement.getOtherOperatingRevenue() == 0) {
             double other = statement.getTotalOperatingRevenue()
@@ -394,7 +395,23 @@ public class AirlineHTMLParser {
                          - statement.getCargoRevenue();
             if (other > 0) {
                 statement.setOtherOperatingRevenue(other);
-                logger.debug("Calculated other revenue: {}", other / 1_000_000);
+                logger.debug("Calculated other revenue from total: {}", other / 1_000_000);
+            }
+        }
+
+        // Priority 2: If we have components but not total, calculate total
+        // This is CRITICAL - total MUST be sum of components if not extracted
+        if (statement.getPassengerRevenue() > 0 && statement.getTotalOperatingRevenue() == 0) {
+            double total = statement.getPassengerRevenue()
+                         + statement.getCargoRevenue()
+                         + statement.getOtherOperatingRevenue();
+            if (total > 0) {
+                statement.setTotalOperatingRevenue(total);
+                logger.info("CALCULATED total revenue from components: {} (Passenger: {} + Cargo: {} + Other: {})",
+                    total / 1_000_000,
+                    statement.getPassengerRevenue() / 1_000_000,
+                    statement.getCargoRevenue() / 1_000_000,
+                    statement.getOtherOperatingRevenue() / 1_000_000);
             }
         }
 
