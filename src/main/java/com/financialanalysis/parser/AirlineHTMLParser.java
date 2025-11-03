@@ -181,8 +181,7 @@ public class AirlineHTMLParser {
 
     // Helper methods for keyword detection
     private boolean containsRevenueKeywords(String text) {
-        // More flexible matching: check if table contains revenue-related terms
-        // and at least two of the common revenue categories
+        // Check for revenue context
         boolean hasRevenueContext = text.contains("operating revenue") ||
                                      text.contains("total revenue") ||
                                      text.contains("operating revenues") ||
@@ -190,23 +189,25 @@ public class AirlineHTMLParser {
                                      text.contains("revenue by source") ||
                                      text.contains("revenue by type") ||
                                      text.contains("operating revenues:") ||
+                                     text.contains("passenger revenues") ||
                                      (text.contains("revenue") && (text.contains("operating") || text.contains("total")));
 
         int categoryCount = 0;
-        // JetBlue and other airlines use various terms for passenger revenue
+        // Count revenue categories - airlines use various terms
         if (text.contains("passenger") || text.contains("transportation")) categoryCount++;
         if (text.contains("cargo") || text.contains("freight") || text.contains("mail")) categoryCount++;
         if (text.contains("other") || text.contains("ancillary") || text.contains("loyalty") ||
-            text.contains("trueblue") || text.contains("mileageplus")) categoryCount++;
+            text.contains("trueblue") || text.contains("mileageplus") || text.contains("mileage plus")) categoryCount++;
 
-        // Alternative: check if it's explicitly labeled as revenue breakdown/composition
+        // Check for explicit revenue table indicators
         boolean isRevenueTable = text.contains("revenue composition") ||
                                   text.contains("revenue breakdown") ||
                                   text.contains("revenues by category") ||
                                   text.contains("revenues by type") ||
-                                  text.contains("consolidated statements of operations");
+                                  text.contains("operating revenues by") ||
+                                  (text.contains("consolidated statements of operations") && categoryCount >= 2);
 
-        // More lenient: Match if we have revenue context and at least 1 category, OR explicit revenue table
+        // Match if we have revenue context with categories, OR it's an explicit revenue table
         boolean matches = (hasRevenueContext && categoryCount >= 1) || (isRevenueTable && categoryCount >= 1);
 
         if (matches) {
@@ -386,7 +387,8 @@ public class AirlineHTMLParser {
             }
         }
 
-        // If we have passenger and cargo but not other, calculate it
+        // Auto-calculate missing revenue components
+        // Priority 1: If we have passenger and cargo but not other, calculate other
         if (statement.getPassengerRevenue() > 0 && statement.getTotalOperatingRevenue() > 0
             && statement.getOtherOperatingRevenue() == 0) {
             double other = statement.getTotalOperatingRevenue()
@@ -394,7 +396,23 @@ public class AirlineHTMLParser {
                          - statement.getCargoRevenue();
             if (other > 0) {
                 statement.setOtherOperatingRevenue(other);
-                logger.debug("Calculated other revenue: {}", other / 1_000_000);
+                logger.debug("Calculated other revenue from total: {}", other / 1_000_000);
+            }
+        }
+
+        // Priority 2: If we have components but not total, calculate total
+        // This is CRITICAL - total MUST be sum of components if not extracted
+        if (statement.getPassengerRevenue() > 0 && statement.getTotalOperatingRevenue() == 0) {
+            double total = statement.getPassengerRevenue()
+                         + statement.getCargoRevenue()
+                         + statement.getOtherOperatingRevenue();
+            if (total > 0) {
+                statement.setTotalOperatingRevenue(total);
+                logger.info("CALCULATED total revenue from components: {} (Passenger: {} + Cargo: {} + Other: {})",
+                    total / 1_000_000,
+                    statement.getPassengerRevenue() / 1_000_000,
+                    statement.getCargoRevenue() / 1_000_000,
+                    statement.getOtherOperatingRevenue() / 1_000_000);
             }
         }
 
@@ -779,24 +797,36 @@ public class AirlineHTMLParser {
         // Calculate RASM if not already set
         if (metrics.getTotalRevenuePerASM() == 0 && incomeStatement != null && incomeStatement.getTotalOperatingRevenue() > 0) {
             // RASM = (Total Revenue / ASMs) * 100 to get cents
-            double rasm = (incomeStatement.getTotalOperatingRevenue() / asms) * 100.0;
+            double revenueInDollars = incomeStatement.getTotalOperatingRevenue();
+            double rasm = (revenueInDollars / asms) * 100.0;
             metrics.setTotalRevenuePerASM(rasm);
-            logger.info("Calculated RASM: {} cents", String.format("%.2f", rasm));
+            logger.info("Calculated RASM: {} cents (Revenue=${} / ASMs={} * 100)",
+                String.format("%.2f", rasm),
+                String.format("%.0fM", revenueInDollars / 1_000_000),
+                String.format("%.0fM", asms / 1_000_000));
         }
 
         // Calculate PRASM if not already set
         if (metrics.getPassengerRevenuePerASM() == 0 && incomeStatement != null && incomeStatement.getPassengerRevenue() > 0) {
-            double prasm = (incomeStatement.getPassengerRevenue() / asms) * 100.0;
+            double passengerRevenue = incomeStatement.getPassengerRevenue();
+            double prasm = (passengerRevenue / asms) * 100.0;
             metrics.setPassengerRevenuePerASM(prasm);
-            logger.info("Calculated PRASM: {} cents", String.format("%.2f", prasm));
+            logger.info("Calculated PRASM: {} cents (PaxRev=${} / ASMs={} * 100)",
+                String.format("%.2f", prasm),
+                String.format("%.0fM", passengerRevenue / 1_000_000),
+                String.format("%.0fM", asms / 1_000_000));
         }
 
         // Calculate CASM if not already set
         if (metrics.getOperatingCostPerASM() == 0 && incomeStatement != null && incomeStatement.getTotalOperatingExpenses() > 0) {
             // CASM = (Total Operating Expenses / ASMs) * 100 to get cents
-            double casm = (incomeStatement.getTotalOperatingExpenses() / asms) * 100.0;
+            double expenses = incomeStatement.getTotalOperatingExpenses();
+            double casm = (expenses / asms) * 100.0;
             metrics.setOperatingCostPerASM(casm);
-            logger.info("Calculated CASM: {} cents", String.format("%.2f", casm));
+            logger.info("Calculated CASM: {} cents (OpEx=${} / ASMs={} * 100)",
+                String.format("%.2f", casm),
+                String.format("%.0fM", expenses / 1_000_000),
+                String.format("%.0fM", asms / 1_000_000));
         }
 
         // Calculate CASM-ex (excluding fuel) if not already set
