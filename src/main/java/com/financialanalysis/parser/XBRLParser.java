@@ -474,13 +474,14 @@ public class XBRLParser {
 
         // Revenue breakdown - Try to get total operating revenue first
         double totalRevenue = extractValue(root, ns, companyNs,
+                "Revenues",  // Prioritize generic Revenues tag first
                 "OperatingRevenue",
                 "OperatingRevenues",
                 "TotalOperatingRevenue",
                 "TotalOperatingRevenues",
-                "Revenues",
                 "RevenueFromContractWithCustomerExcludingAssessedTax",
-                "SalesRevenueNet"
+                "SalesRevenueNet",
+                "RevenueFromContractWithCustomer"  // Added for completeness
         );
 
         double passengerRevenue = extractValue(root, ns, companyNs,
@@ -490,7 +491,8 @@ public class XBRLParser {
                 "TransportationRevenue",
                 "AirTransportationRevenue",
                 "RevenuePassenger",
-                "ScheduledServiceRevenue"
+                "ScheduledServiceRevenue",
+                "AirlinePassengerRevenue"  // Added for completeness
         );
 
         double cargoRevenue = extractValue(root, ns, companyNs,
@@ -504,12 +506,21 @@ public class XBRLParser {
 
         // Try to extract "Other Revenue" directly first
         double otherRevenue = extractValue(root, ns, companyNs,
+                "OtherOperatingIncome",  // Added - UAL uses this tag
                 "OtherOperatingRevenue",
                 "OtherOperatingRevenues",
                 "AncillaryRevenue",
                 "LoyaltyProgramRevenue",
                 "MiscellaneousOperatingRevenue"
         );
+
+        // Log extracted values for debugging
+        logger.info("Revenue extraction for year {}: Total=${}, Passenger=${}, Cargo=${}, Other=${}",
+            fiscalYear,
+            totalRevenue / 1_000_000,
+            passengerRevenue / 1_000_000,
+            cargoRevenue / 1_000_000,
+            otherRevenue / 1_000_000);
 
         // Revenue calculation logic - ensure consistency
         if (totalRevenue > 0 && passengerRevenue > 0 && cargoRevenue >= 0) {
