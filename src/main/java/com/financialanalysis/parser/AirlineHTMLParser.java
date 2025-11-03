@@ -157,6 +157,7 @@ public class AirlineHTMLParser {
         // and at least two of the common revenue categories
         boolean hasRevenueContext = text.contains("operating revenue") ||
                                      text.contains("total revenue") ||
+                                     text.contains("operating revenues") ||
                                      (text.contains("revenue") && (text.contains("operating") || text.contains("total")));
 
         int categoryCount = 0;
@@ -164,36 +165,68 @@ public class AirlineHTMLParser {
         if (text.contains("cargo") || text.contains("freight")) categoryCount++;
         if (text.contains("other") || text.contains("ancillary") || text.contains("loyalty")) categoryCount++;
 
-        // Match if we have revenue context and at least 2 revenue categories
-        return hasRevenueContext && categoryCount >= 2;
+        // Alternative: check if it's explicitly labeled as revenue breakdown/composition
+        boolean isRevenueTable = text.contains("revenue composition") ||
+                                  text.contains("revenue breakdown") ||
+                                  text.contains("operating revenues by category");
+
+        // Match if we have revenue context and at least 2 revenue categories, OR explicit revenue table
+        boolean matches = (hasRevenueContext && categoryCount >= 2) || (isRevenueTable && categoryCount >= 1);
+
+        if (matches) {
+            logger.trace("Revenue keywords matched - context: {}, categories: {}, explicit: {}",
+                hasRevenueContext, categoryCount, isRevenueTable);
+        }
+
+        return matches;
     }
 
     private boolean containsOperatingStatsKeywords(String text) {
         int keywordCount = 0;
+
         // Check for ASM variations
-        if (text.contains("available seat miles") || text.contains("available seat-miles") ||
-            text.contains("asm") || text.contains("asms") || text.contains("capacity")) keywordCount++;
+        boolean hasASM = text.contains("available seat miles") || text.contains("available seat-miles") ||
+                         text.contains("capacity (asm") || text.contains("capacity(asm") ||
+                         (text.contains("asm") && !text.contains("rasm") && !text.contains("prasm") && !text.contains("casm"));
+        if (hasASM) keywordCount++;
 
         // Check for RPM variations
-        if (text.contains("revenue passenger miles") || text.contains("revenue passenger-miles") ||
-            text.contains("rpm") || text.contains("rpms") || text.contains("traffic")) keywordCount++;
+        boolean hasRPM = text.contains("revenue passenger miles") || text.contains("revenue passenger-miles") ||
+                         text.contains("traffic (rpm") || text.contains("traffic(rpm") ||
+                         (text.contains("rpm") && !text.contains("prpm"));
+        if (hasRPM) keywordCount++;
 
         // Check for load factor
-        if (text.contains("load factor") || text.contains("passenger load")) keywordCount++;
+        if (text.contains("load factor") || text.contains("passenger load") || text.contains("load %")) keywordCount++;
 
         // Check for unit revenue metrics
         if (text.contains("rasm") || text.contains("prasm") || text.contains("revenue per asm") ||
-            text.contains("unit revenue") || text.contains("yield")) keywordCount++;
+            text.contains("unit revenue") || text.contains("passenger yield") || text.contains("yield per")) keywordCount++;
 
         // Check for unit cost metrics
-        if (text.contains("casm") || text.contains("cost per asm") || text.contains("unit cost")) keywordCount++;
+        if (text.contains("casm") || text.contains("cost per asm") || text.contains("unit cost") ||
+            text.contains("operating expense per asm")) keywordCount++;
 
-        // Check for passengers or departures
-        if (text.contains("passengers") && !text.contains("revenue passenger miles")) keywordCount++;
-        if (text.contains("departures") || text.contains("flights")) keywordCount++;
+        // Check for passengers or departures (common in operating stats tables)
+        if (text.contains("passengers enplaned") || text.contains("passengers carried") ||
+            (text.contains("passengers") && !text.contains("revenue passenger miles"))) keywordCount++;
+        if (text.contains("departures") || text.contains("flights operated") || text.contains("flight operations")) keywordCount++;
 
-        // Need at least 2 key metrics present (lowered from 3 for more flexibility)
-        return keywordCount >= 2;
+        // Check for explicit operating statistics labels
+        boolean isOperatingStatsTable = text.contains("operating statistics") ||
+                                         text.contains("operational statistics") ||
+                                         text.contains("operating data") ||
+                                         text.contains("statistical data");
+
+        // Match if we have at least 2 keywords OR explicit operating stats label with at least 1 keyword
+        boolean matches = keywordCount >= 2 || (isOperatingStatsTable && keywordCount >= 1);
+
+        if (matches) {
+            logger.trace("Operating stats keywords matched - keyword count: {}, explicit label: {}",
+                keywordCount, isOperatingStatsTable);
+        }
+
+        return matches;
     }
 
     private boolean containsSegmentKeywords(String text) {
@@ -233,10 +266,17 @@ public class AirlineHTMLParser {
 
             String cellValue = cells.get(yearColumnIndex).text();
 
+            // Skip rows that are clearly headers or subtotals (but allow "total operating revenue")
+            boolean isSubtotal = (firstCell.contains("subtotal") || firstCell.contains("sub-total")) &&
+                                 !firstCell.contains("total operating");
+
+            if (isSubtotal) continue;
+
             // Extract values based on row labels - more flexible matching
             // Passenger revenue
             if ((firstCell.contains("passenger") && (firstCell.contains("revenue") || firstCell.contains("operating"))) &&
-                !firstCell.contains("cargo") && !firstCell.contains("freight")) {
+                !firstCell.contains("cargo") && !firstCell.contains("freight") &&
+                !firstCell.contains("per") && !firstCell.contains("yield")) {
                 double value = extractNumber(cellValue);
                 if (value > 0) {
                     statement.setPassengerRevenue(value * 1_000_000); // Convert to actual value
@@ -245,7 +285,8 @@ public class AirlineHTMLParser {
             }
             // Cargo/Freight revenue
             else if ((firstCell.contains("cargo") || firstCell.contains("freight")) &&
-                     (firstCell.contains("revenue") || firstCell.contains("operating"))) {
+                     (firstCell.contains("revenue") || firstCell.contains("operating")) &&
+                     !firstCell.contains("per")) {
                 double value = extractNumber(cellValue);
                 if (value > 0) {
                     statement.setCargoRevenue(value * 1_000_000);
@@ -255,7 +296,8 @@ public class AirlineHTMLParser {
             // Other revenue (includes ancillary, loyalty, etc.)
             else if ((firstCell.contains("other") || firstCell.contains("ancillary") ||
                       firstCell.contains("loyalty") || firstCell.contains("mileageplus")) &&
-                     (firstCell.contains("revenue") || firstCell.contains("operating"))) {
+                     (firstCell.contains("revenue") || firstCell.contains("operating")) &&
+                     !firstCell.contains("per")) {
                 double value = extractNumber(cellValue);
                 if (value > 0) {
                     statement.setOtherOperatingRevenue(value * 1_000_000);
@@ -263,12 +305,17 @@ public class AirlineHTMLParser {
                 }
             }
             // Total operating revenue
-            else if (firstCell.contains("total") && (firstCell.contains("operating revenue") ||
-                     firstCell.contains("operating revenues") || firstCell.equals("total revenue"))) {
-                double value = extractNumber(cellValue);
-                if (value > 0) {
-                    statement.setTotalOperatingRevenue(value * 1_000_000);
-                    logger.debug("Extracted total revenue: {} (raw: '{}') from row: {}", value, cellValue, firstCell);
+            else if ((firstCell.contains("total") || firstCell.contains("operating revenue") ||
+                      firstCell.contains("operating revenues") || firstCell.equals("total revenue")) &&
+                     !firstCell.contains("per") && !firstCell.contains("excluding")) {
+                // Make sure it looks like a total revenue line
+                if (firstCell.contains("total operating revenue") || firstCell.contains("total operating revenues") ||
+                    firstCell.contains("operating revenue") || firstCell.equals("total revenue")) {
+                    double value = extractNumber(cellValue);
+                    if (value > 0) {
+                        statement.setTotalOperatingRevenue(value * 1_000_000);
+                        logger.debug("Extracted total revenue: {} (raw: '{}') from row: {}", value, cellValue, firstCell);
+                    }
                 }
             }
         }
@@ -326,8 +373,16 @@ public class AirlineHTMLParser {
 
             // Extract various operating metrics with more flexible matching
             // Available Seat Miles (ASM)
-            if (firstCell.contains("available seat") || firstCell.contains("available seat-miles") ||
-                firstCell.matches("^asms?$") || firstCell.contains("capacity (asm")) {
+            boolean isASM = firstCell.contains("available seat") ||
+                           firstCell.contains("available seat-miles") ||
+                           firstCell.contains("capacity (asm") ||
+                           firstCell.contains("capacity(asm") ||
+                           (firstCell.matches("^asms?$")) ||
+                           (firstCell.contains("asm") && !firstCell.contains("rasm") &&
+                            !firstCell.contains("prasm") && !firstCell.contains("casm") &&
+                            !firstCell.contains("per") && !firstCell.contains("yield"));
+
+            if (isASM) {
                 long value = (long) extractNumber(cellValue);
                 if (value > 0) {
                     metrics.setAvailableSeatMiles(value * 1_000_000); // Usually in millions
@@ -336,7 +391,9 @@ public class AirlineHTMLParser {
             }
             // Revenue Passenger Miles (RPM)
             else if (firstCell.contains("revenue passenger") || firstCell.contains("revenue passenger-miles") ||
-                     firstCell.matches("^rpms?$") || firstCell.contains("traffic (rpm")) {
+                     firstCell.contains("traffic (rpm") || firstCell.contains("traffic(rpm") ||
+                     (firstCell.matches("^rpms?$")) ||
+                     (firstCell.contains("rpm") && !firstCell.contains("per") && !firstCell.contains("yield"))) {
                 long value = (long) extractNumber(cellValue);
                 if (value > 0) {
                     metrics.setRevenuePassengerMiles(value * 1_000_000);
