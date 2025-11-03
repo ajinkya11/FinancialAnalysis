@@ -312,12 +312,19 @@ public class MetricsCalculator {
 
     /**
      * Helper method to calculate growth rate
+     * Handles both positive and negative values correctly
      */
     private double calculateGrowthRate(double current, double previous) {
-        if (previous <= 0) {
+        // Cannot calculate growth if previous value is exactly 0
+        if (previous == 0) {
             return 0;
         }
-        return (current - previous) / previous;
+
+        // Calculate growth rate: (current - previous) / |previous|
+        // For negative values, we use absolute value to get meaningful percentage
+        // Example: -230 to -684 = (-684 - (-230)) / |-230| = -454 / 230 = -197%
+        // This correctly shows deterioration (more negative)
+        return (current - previous) / Math.abs(previous);
     }
 
     // Formatting helpers

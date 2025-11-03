@@ -315,6 +315,29 @@ public class XBRLParser {
     }
 
     /**
+     * Extracts a numeric value from XBRL searching both US-GAAP and company-specific namespaces
+     * Tries US-GAAP first, then falls back to company namespace
+     */
+    private double extractValue(Element root, Namespace usGaapNs, Namespace companyNs, String... tagNames) {
+        // First try US-GAAP namespace
+        double value = extractValue(root, usGaapNs, tagNames);
+        if (value != 0) {
+            return value;
+        }
+
+        // Fall back to company-specific namespace if available
+        if (companyNs != null) {
+            value = extractValue(root, companyNs, tagNames);
+            if (value != 0) {
+                logger.debug("Found value in company namespace: {}", companyNs.getPrefix());
+                return value;
+            }
+        }
+
+        return 0;
+    }
+
+    /**
      * Recursively searches for an element by name
      */
     private Element findElementRecursive(Element parent, String name, Namespace ns) {
@@ -354,6 +377,25 @@ public class XBRLParser {
     private Namespace findNamespace(Element root, String prefix) {
         for (Namespace ns : root.getNamespacesInScope()) {
             if (ns.getPrefix().equals(prefix) || ns.getURI().contains(prefix)) {
+                return ns;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Finds the company-specific namespace (e.g., ual, jblu, etc.)
+     * Company namespaces typically have short prefixes that aren't standard (us-gaap, dei, xbrl, etc.)
+     */
+    private Namespace findCompanyNamespace(Element root) {
+        List<String> standardPrefixes = List.of("", "us-gaap", "dei", "xbrl", "xlink", "link",
+                "xsi", "iso4217", "xbrldi", "srt", "ecd", "cyd", "xml");
+
+        for (Namespace ns : root.getNamespacesInScope()) {
+            String prefix = ns.getPrefix();
+            // Look for non-standard prefixes that aren't empty
+            if (!prefix.isEmpty() && !standardPrefixes.contains(prefix)) {
+                logger.debug("Found potential company namespace: {}:{}", prefix, ns.getURI());
                 return ns;
             }
         }
@@ -401,15 +443,20 @@ public class XBRLParser {
         Element rootElement = document.getRootElement();
 
         Namespace usGaapNs = findNamespace(rootElement, "us-gaap");
+        Namespace companyNs = findCompanyNamespace(rootElement);
         int fiscalYear = extractFiscalYear(xbrlFile.getName(), rootElement);
+
+        if (companyNs != null) {
+            logger.info("Found company-specific namespace: {}:{}", companyNs.getPrefix(), companyNs.getURI());
+        }
 
         DetailedFinancialData data = new DetailedFinancialData();
         data.setFiscalYear(fiscalYear);
 
-        // Extract all detailed statements
-        data.setIncomeStatement(parseDetailedIncomeStatement(rootElement, usGaapNs, fiscalYear));
-        data.setBalanceSheet(parseDetailedBalanceSheet(rootElement, usGaapNs, fiscalYear));
-        data.setCashFlow(parseDetailedCashFlow(rootElement, usGaapNs, fiscalYear));
+        // Extract all detailed statements (pass both namespaces)
+        data.setIncomeStatement(parseDetailedIncomeStatement(rootElement, usGaapNs, companyNs, fiscalYear));
+        data.setBalanceSheet(parseDetailedBalanceSheet(rootElement, usGaapNs, companyNs, fiscalYear));
+        data.setCashFlow(parseDetailedCashFlow(rootElement, usGaapNs, companyNs, fiscalYear));
 
         logger.info("Successfully parsed detailed financial data for year {}", fiscalYear);
         return data;
@@ -418,23 +465,23 @@ public class XBRLParser {
     /**
      * Extracts detailed income statement
      */
-    private DetailedIncomeStatement parseDetailedIncomeStatement(Element root, Namespace ns, int fiscalYear) {
+    private DetailedIncomeStatement parseDetailedIncomeStatement(Element root, Namespace ns, Namespace companyNs, int fiscalYear) {
         DetailedIncomeStatement stmt = new DetailedIncomeStatement(fiscalYear);
 
         // Revenue breakdown
-        stmt.setTotalOperatingRevenue(extractValue(root, ns,
+        stmt.setTotalOperatingRevenue(extractValue(root, ns, companyNs,
                 "Revenues",
                 "RevenueFromContractWithCustomerExcludingAssessedTax",
                 "SalesRevenueNet"
         ));
 
-        stmt.setPassengerRevenue(extractValue(root, ns,
+        stmt.setPassengerRevenue(extractValue(root, ns, companyNs,
                 "PassengerRevenue",
                 "TransportationRevenue",
                 "AirTransportationRevenue"
         ));
 
-        stmt.setCargoRevenue(extractValue(root, ns,
+        stmt.setCargoRevenue(extractValue(root, ns, companyNs,
                 "CargoRevenue",
                 "FreightRevenue"
         ));
@@ -443,145 +490,145 @@ public class XBRLParser {
         stmt.setOtherOperatingRevenue(stmt.getTotalOperatingRevenue() - stmt.getPassengerRevenue() - stmt.getCargoRevenue());
 
         // Loyalty program revenue
-        stmt.setLoyaltyProgramRevenue(extractValue(root, ns,
+        stmt.setLoyaltyProgramRevenue(extractValue(root, ns, companyNs,
                 "LoyaltyProgramRevenue",
                 "MileageCreditRevenue",
                 "FrequentFlyerMileageCreditRevenue"
         ));
 
-        stmt.setBaggageFees(extractValue(root, ns,
+        stmt.setBaggageFees(extractValue(root, ns, companyNs,
                 "BaggageFeesRevenue",
                 "PassengerBaggageRevenue"
         ));
 
         // Operating Expenses
-        stmt.setAircraftFuel(extractValue(root, ns,
+        stmt.setAircraftFuel(extractValue(root, ns, companyNs,
                 "FuelAndFuelRelatedExpense",
                 "AircraftFuelExpense",
                 "FuelExpense"
         ));
 
-        stmt.setSalariesAndRelatedCosts(extractValue(root, ns,
+        stmt.setSalariesAndRelatedCosts(extractValue(root, ns, companyNs,
                 "LaborAndRelatedExpense",
                 "SalariesAndWages",
                 "EmployeeBenefitsAndShareBasedCompensation"
         ));
 
-        stmt.setRegionalCapacityPurchase(extractValue(root, ns,
+        stmt.setRegionalCapacityPurchase(extractValue(root, ns, companyNs,
                 "RegionalCapacityPurchaseExpense",
                 "ContractualAgreementsExpense"
         ));
 
-        stmt.setLandingFeesAndRent(extractValue(root, ns,
+        stmt.setLandingFeesAndRent(extractValue(root, ns, companyNs,
                 "LandingFeesAndOtherRentalsCosts",
                 "AirportFeesAndRent",
                 "LandingFees"
         ));
 
-        stmt.setAircraftMaintenance(extractValue(root, ns,
+        stmt.setAircraftMaintenance(extractValue(root, ns, companyNs,
                 "MaintenanceMaterialsAndRepairs",
                 "AircraftMaintenanceExpense",
                 "MaintenanceExpense"
         ));
 
-        stmt.setDepreciation(extractValue(root, ns,
+        stmt.setDepreciation(extractValue(root, ns, companyNs,
                 "Depreciation",
                 "DepreciationNonproduction",
                 "DepreciationAndAmortizationDepreciationComponent"
         ));
 
-        stmt.setAmortization(extractValue(root, ns,
+        stmt.setAmortization(extractValue(root, ns, companyNs,
                 "AmortizationOfIntangibleAssets",
                 "DepreciationAndAmortizationAmortizationComponent"
         ));
 
-        stmt.setDistributionExpenses(extractValue(root, ns,
+        stmt.setDistributionExpenses(extractValue(root, ns, companyNs,
                 "SellingAndMarketingExpense",
                 "DistributionExpense",
                 "SalesAndMarketingExpense"
         ));
 
-        stmt.setAircraftRent(extractValue(root, ns,
+        stmt.setAircraftRent(extractValue(root, ns, companyNs,
                 "AircraftRentExpense",
                 "OperatingLeaseExpense",
                 "OperatingLeaseCost"
         ));
 
-        stmt.setSpecialCharges(extractValue(root, ns,
+        stmt.setSpecialCharges(extractValue(root, ns, companyNs,
                 "RestructuringCharges",
                 "AssetImpairmentCharges",
                 "SpecialCharges"
         ));
 
-        stmt.setTotalOperatingExpenses(extractValue(root, ns,
+        stmt.setTotalOperatingExpenses(extractValue(root, ns, companyNs,
                 "OperatingExpenses",
                 "CostsAndExpenses",
                 "OperatingCostsAndExpenses"
         ));
 
         // Operating Income
-        stmt.setOperatingIncome(extractValue(root, ns,
+        stmt.setOperatingIncome(extractValue(root, ns, companyNs,
                 "OperatingIncomeLoss",
                 "OperatingIncome"
         ));
 
         // Non-operating items
-        stmt.setInterestExpense(extractValue(root, ns,
+        stmt.setInterestExpense(extractValue(root, ns, companyNs,
                 "InterestExpense",
                 "InterestExpenseDebt"
         ));
 
-        stmt.setInterestIncome(extractValue(root, ns,
+        stmt.setInterestIncome(extractValue(root, ns, companyNs,
                 "InterestIncome",
                 "InterestAndDividendIncomeOperating"
         ));
 
-        stmt.setOtherIncomeExpense(extractValue(root, ns,
+        stmt.setOtherIncomeExpense(extractValue(root, ns, companyNs,
                 "OtherNonoperatingIncomeExpense",
                 "NonoperatingIncomeExpense",
                 "OtherIncomeAndExpenses"
         ));
 
         // Taxes
-        stmt.setIncomeTaxExpense(extractValue(root, ns,
+        stmt.setIncomeTaxExpense(extractValue(root, ns, companyNs,
                 "IncomeTaxExpenseBenefit",
                 "IncomeTaxExpense"
         ));
 
-        stmt.setPretaxIncome(extractValue(root, ns,
+        stmt.setPretaxIncome(extractValue(root, ns, companyNs,
                 "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
                 "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments"
         ));
 
         // Net Income
-        stmt.setNetIncome(extractValue(root, ns,
+        stmt.setNetIncome(extractValue(root, ns, companyNs,
                 "NetIncomeLoss",
                 "ProfitLoss"
         ));
 
-        stmt.setNetIncomeAvailableToCommon(extractValue(root, ns,
+        stmt.setNetIncomeAvailableToCommon(extractValue(root, ns, companyNs,
                 "NetIncomeLossAvailableToCommonStockholdersBasic",
                 "NetIncomeLoss"
         ));
 
         // Per Share Data
-        stmt.setBasicEPS(extractValue(root, ns,
+        stmt.setBasicEPS(extractValue(root, ns, companyNs,
                 "EarningsPerShareBasic"
         ));
 
-        stmt.setDilutedEPS(extractValue(root, ns,
+        stmt.setDilutedEPS(extractValue(root, ns, companyNs,
                 "EarningsPerShareDiluted"
         ));
 
-        stmt.setWeightedAverageSharesBasic(extractValue(root, ns,
+        stmt.setWeightedAverageSharesBasic(extractValue(root, ns, companyNs,
                 "WeightedAverageNumberOfSharesOutstandingBasic"
         ));
 
-        stmt.setWeightedAverageSharesDiluted(extractValue(root, ns,
+        stmt.setWeightedAverageSharesDiluted(extractValue(root, ns, companyNs,
                 "WeightedAverageNumberOfDilutedSharesOutstanding"
         ));
 
-        stmt.setShareCountYearEnd(extractValue(root, ns,
+        stmt.setShareCountYearEnd(extractValue(root, ns, companyNs,
                 "CommonStockSharesOutstanding",
                 "CommonStockSharesIssued"
         ));
@@ -608,7 +655,7 @@ public class XBRLParser {
         }
 
         // Estimate employee count if available
-        int employeeCount = (int) extractValue(root, ns,
+        int employeeCount = (int) extractValue(root, ns, companyNs,
                 "NumberOfEmployees",
                 "EmployeeRelatedLiabilitiesCurrentNumberOfEmployees"
         );
@@ -616,7 +663,7 @@ public class XBRLParser {
 
         // Calculate fuel gallons and price if possible
         if (stmt.getAircraftFuel() > 0) {
-            double gallons = extractValue(root, ns,
+            double gallons = extractValue(root, ns, companyNs,
                     "FuelConsumedGallons",
                     "FuelGallonsConsumed"
             );
@@ -632,228 +679,228 @@ public class XBRLParser {
     /**
      * Extracts detailed balance sheet
      */
-    private DetailedBalanceSheet parseDetailedBalanceSheet(Element root, Namespace ns, int fiscalYear) {
+    private DetailedBalanceSheet parseDetailedBalanceSheet(Element root, Namespace ns, Namespace companyNs, int fiscalYear) {
         DetailedBalanceSheet bs = new DetailedBalanceSheet(fiscalYear);
 
         // Current Assets
-        bs.setCashAndCashEquivalents(extractValue(root, ns,
+        bs.setCashAndCashEquivalents(extractValue(root, ns, companyNs,
                 "CashAndCashEquivalentsAtCarryingValue",
                 "Cash",
                 "CashEquivalents"
         ));
 
-        bs.setShortTermInvestments(extractValue(root, ns,
+        bs.setShortTermInvestments(extractValue(root, ns, companyNs,
                 "ShortTermInvestments",
                 "MarketableSecuritiesCurrent",
                 "AvailableForSaleSecuritiesCurrent"
         ));
 
-        bs.setRestrictedCash(extractValue(root, ns,
+        bs.setRestrictedCash(extractValue(root, ns, companyNs,
                 "RestrictedCashCurrent",
                 "RestrictedCash"
         ));
 
-        bs.setAccountsReceivable(extractValue(root, ns,
+        bs.setAccountsReceivable(extractValue(root, ns, companyNs,
                 "AccountsReceivableNetCurrent",
                 "ReceivablesNetCurrent",
                 "AccountsReceivableNet"
         ));
 
-        bs.setAllowanceForDoubtfulAccounts(extractValue(root, ns,
+        bs.setAllowanceForDoubtfulAccounts(extractValue(root, ns, companyNs,
                 "AllowanceForDoubtfulAccountsReceivableCurrent",
                 "AllowanceForDoubtfulAccounts"
         ));
 
-        bs.setPrepaidExpenses(extractValue(root, ns,
+        bs.setPrepaidExpenses(extractValue(root, ns, companyNs,
                 "PrepaidExpenseCurrent",
                 "PrepaidExpenseAndOtherAssetsCurrent"
         ));
 
-        bs.setSparePartsAndSupplies(extractValue(root, ns,
+        bs.setSparePartsAndSupplies(extractValue(root, ns, companyNs,
                 "SparePartsSuppliesAndFuel",
                 "InventorySparePartsSuppliesAndFuel",
                 "MaterialsSuppliesAndFuel"
         ));
 
-        bs.setTotalCurrentAssets(extractValue(root, ns,
+        bs.setTotalCurrentAssets(extractValue(root, ns, companyNs,
                 "AssetsCurrent"
         ));
 
         // Property, Plant & Equipment
-        bs.setFlightEquipment(extractValue(root, ns,
+        bs.setFlightEquipment(extractValue(root, ns, companyNs,
                 "FlightEquipmentGross",
                 "AircraftAndFlightEquipmentGross",
                 "PropertyPlantAndEquipmentAircraft"
         ));
 
-        bs.setGroundEquipment(extractValue(root, ns,
+        bs.setGroundEquipment(extractValue(root, ns, companyNs,
                 "PropertyPlantAndEquipmentOther",
                 "GroundPropertyAndEquipmentGross"
         ));
 
-        bs.setBuildings(extractValue(root, ns,
+        bs.setBuildings(extractValue(root, ns, companyNs,
                 "PropertyPlantAndEquipmentBuildings",
                 "BuildingsAndImprovementsGross"
         ));
 
-        bs.setConstructionInProgress(extractValue(root, ns,
+        bs.setConstructionInProgress(extractValue(root, ns, companyNs,
                 "ConstructionInProgressGross",
                 "PropertyPlantAndEquipmentConstructionInProgress"
         ));
 
-        bs.setTotalPPEAtCost(extractValue(root, ns,
+        bs.setTotalPPEAtCost(extractValue(root, ns, companyNs,
                 "PropertyPlantAndEquipmentGross"
         ));
 
-        bs.setAccumulatedDepreciation(extractValue(root, ns,
+        bs.setAccumulatedDepreciation(extractValue(root, ns, companyNs,
                 "AccumulatedDepreciationDepletionAndAmortizationPropertyPlantAndEquipment",
                 "AccumulatedDepreciation"
         ));
 
-        bs.setNetPPE(extractValue(root, ns,
+        bs.setNetPPE(extractValue(root, ns, companyNs,
                 "PropertyPlantAndEquipmentNet"
         ));
 
         // Operating Lease ROU Assets (ASC 842)
-        bs.setOperatingLeaseRightOfUseAssets(extractValue(root, ns,
+        bs.setOperatingLeaseRightOfUseAssets(extractValue(root, ns, companyNs,
                 "OperatingLeaseRightOfUseAsset",
                 "OperatingLeaseRightOfUseAssetNoncurrent"
         ));
 
         // Intangibles
-        bs.setGoodwill(extractValue(root, ns,
+        bs.setGoodwill(extractValue(root, ns, companyNs,
                 "Goodwill"
         ));
 
-        bs.setIntangibleAssets(extractValue(root, ns,
+        bs.setIntangibleAssets(extractValue(root, ns, companyNs,
                 "IntangibleAssetsNetExcludingGoodwill",
                 "FiniteLivedIntangibleAssetsNet"
         ));
 
-        bs.setRoutesAndSlots(extractValue(root, ns,
+        bs.setRoutesAndSlots(extractValue(root, ns, companyNs,
                 "RouteAuthoritiesIntangibleAsset",
                 "LandingAndTakeoffSlotsIntangibleAsset",
                 "AirlineRoutesIntangibleAsset"
         ));
 
-        bs.setLongTermInvestments(extractValue(root, ns,
+        bs.setLongTermInvestments(extractValue(root, ns, companyNs,
                 "LongTermInvestments",
                 "InvestmentsNoncurrent"
         ));
 
-        bs.setDeferredTaxAssets(extractValue(root, ns,
+        bs.setDeferredTaxAssets(extractValue(root, ns, companyNs,
                 "DeferredTaxAssetsNetNoncurrent",
                 "DeferredIncomeTaxAssetsNet"
         ));
 
-        bs.setTotalAssets(extractValue(root, ns,
+        bs.setTotalAssets(extractValue(root, ns, companyNs,
                 "Assets"
         ));
 
         // Current Liabilities
-        bs.setAccountsPayable(extractValue(root, ns,
+        bs.setAccountsPayable(extractValue(root, ns, companyNs,
                 "AccountsPayableCurrent"
         ));
 
-        bs.setAccruedSalariesAndBenefits(extractValue(root, ns,
+        bs.setAccruedSalariesAndBenefits(extractValue(root, ns, companyNs,
                 "EmployeeRelatedLiabilitiesCurrent",
                 "AccruedSalariesCurrent"
         ));
 
         // Air Traffic Liability - KEY for airlines!
-        bs.setAirTrafficLiability(extractValue(root, ns,
+        bs.setAirTrafficLiability(extractValue(root, ns, companyNs,
                 "AirTrafficLiabilityCurrent",
                 "CustomerAdvancesAndDeposits",
                 "DeferredRevenueAndCustomerAdvances",
                 "ContractWithCustomerLiabilityCurrent"
         ));
 
-        bs.setCurrentDebt(extractValue(root, ns,
+        bs.setCurrentDebt(extractValue(root, ns, companyNs,
                 "DebtCurrent",
                 "ShortTermBorrowings",
                 "LongTermDebtCurrent"
         ));
 
-        bs.setCurrentOperatingLeaseLiabilities(extractValue(root, ns,
+        bs.setCurrentOperatingLeaseLiabilities(extractValue(root, ns, companyNs,
                 "OperatingLeaseLiabilityCurrent"
         ));
 
-        bs.setCurrentFinanceLeaseLiabilities(extractValue(root, ns,
+        bs.setCurrentFinanceLeaseLiabilities(extractValue(root, ns, companyNs,
                 "FinanceLeaseLiabilityCurrent",
                 "CapitalLeaseObligationsCurrent"
         ));
 
-        bs.setTotalCurrentLiabilities(extractValue(root, ns,
+        bs.setTotalCurrentLiabilities(extractValue(root, ns, companyNs,
                 "LiabilitiesCurrent"
         ));
 
         // Long-term Liabilities
-        bs.setLongTermDebt(extractValue(root, ns,
+        bs.setLongTermDebt(extractValue(root, ns, companyNs,
                 "LongTermDebtNoncurrent",
                 "LongTermDebt"
         ));
 
-        bs.setLongTermOperatingLeaseLiabilities(extractValue(root, ns,
+        bs.setLongTermOperatingLeaseLiabilities(extractValue(root, ns, companyNs,
                 "OperatingLeaseLiabilityNoncurrent"
         ));
 
-        bs.setLongTermFinanceLeaseLiabilities(extractValue(root, ns,
+        bs.setLongTermFinanceLeaseLiabilities(extractValue(root, ns, companyNs,
                 "FinanceLeaseLiabilityNoncurrent",
                 "CapitalLeaseObligationsNoncurrent"
         ));
 
-        bs.setPensionLiabilities(extractValue(root, ns,
+        bs.setPensionLiabilities(extractValue(root, ns, companyNs,
                 "DefinedBenefitPensionPlanLiabilitiesNoncurrent",
                 "PensionAndOtherPostretirementDefinedBenefitPlansLiabilitiesNoncurrent"
         ));
 
-        bs.setPostRetirementBenefits(extractValue(root, ns,
+        bs.setPostRetirementBenefits(extractValue(root, ns, companyNs,
                 "OtherPostretirementDefinedBenefitPlanLiabilitiesNoncurrent"
         ));
 
-        bs.setDeferredTaxLiabilities(extractValue(root, ns,
+        bs.setDeferredTaxLiabilities(extractValue(root, ns, companyNs,
                 "DeferredIncomeTaxLiabilitiesNet",
                 "DeferredTaxLiabilitiesNoncurrent"
         ));
 
-        bs.setLoyaltyProgramDeferredRevenue(extractValue(root, ns,
+        bs.setLoyaltyProgramDeferredRevenue(extractValue(root, ns, companyNs,
                 "LoyaltyProgramDeferredRevenue",
                 "DeferredRevenueNoncurrent"
         ));
 
-        bs.setTotalLiabilities(extractValue(root, ns,
+        bs.setTotalLiabilities(extractValue(root, ns, companyNs,
                 "Liabilities"
         ));
 
         // Stockholders' Equity
-        bs.setCommonStock(extractValue(root, ns,
+        bs.setCommonStock(extractValue(root, ns, companyNs,
                 "CommonStockValue"
         ));
 
-        bs.setCommonSharesOutstanding(extractValue(root, ns,
+        bs.setCommonSharesOutstanding(extractValue(root, ns, companyNs,
                 "CommonStockSharesOutstanding",
                 "CommonStockSharesIssued"
         ));
 
-        bs.setAdditionalPaidInCapital(extractValue(root, ns,
+        bs.setAdditionalPaidInCapital(extractValue(root, ns, companyNs,
                 "AdditionalPaidInCapital",
                 "AdditionalPaidInCapitalCommonStock"
         ));
 
-        bs.setTreasuryStock(extractValue(root, ns,
+        bs.setTreasuryStock(extractValue(root, ns, companyNs,
                 "TreasuryStockValue"
         ));
 
-        bs.setRetainedEarnings(extractValue(root, ns,
+        bs.setRetainedEarnings(extractValue(root, ns, companyNs,
                 "RetainedEarningsAccumulatedDeficit"
         ));
 
-        bs.setAccumulatedOtherComprehensiveIncome(extractValue(root, ns,
+        bs.setAccumulatedOtherComprehensiveIncome(extractValue(root, ns, companyNs,
                 "AccumulatedOtherComprehensiveIncomeLossNetOfTax",
                 "AccumulatedOtherComprehensiveIncomeLossNetOfTaxTotal"
         ));
 
-        bs.setTotalStockholdersEquity(extractValue(root, ns,
+        bs.setTotalStockholdersEquity(extractValue(root, ns, companyNs,
                 "StockholdersEquity",
                 "Equity"
         ));
@@ -873,161 +920,161 @@ public class XBRLParser {
     /**
      * Extracts detailed cash flow statement
      */
-    private DetailedCashFlow parseDetailedCashFlow(Element root, Namespace ns, int fiscalYear) {
+    private DetailedCashFlow parseDetailedCashFlow(Element root, Namespace ns, Namespace companyNs, int fiscalYear) {
         DetailedCashFlow cf = new DetailedCashFlow(fiscalYear);
 
         // Operating Activities
-        cf.setNetIncome(extractValue(root, ns,
+        cf.setNetIncome(extractValue(root, ns, companyNs,
                 "NetIncomeLoss",
                 "ProfitLoss"
         ));
 
-        cf.setDepreciation(extractValue(root, ns,
+        cf.setDepreciation(extractValue(root, ns, companyNs,
                 "Depreciation",
                 "DepreciationNonproduction"
         ));
 
-        cf.setAmortization(extractValue(root, ns,
+        cf.setAmortization(extractValue(root, ns, companyNs,
                 "AmortizationOfIntangibleAssets"
         ));
 
-        cf.setDeferredIncomeTaxes(extractValue(root, ns,
+        cf.setDeferredIncomeTaxes(extractValue(root, ns, companyNs,
                 "DeferredIncomeTaxExpenseBenefit",
                 "IncreaseDecreaseInDeferredIncomeTaxes"
         ));
 
-        cf.setStockBasedCompensation(extractValue(root, ns,
+        cf.setStockBasedCompensation(extractValue(root, ns, companyNs,
                 "ShareBasedCompensation",
                 "AllocatedShareBasedCompensationExpense"
         ));
 
-        cf.setImpairmentCharges(extractValue(root, ns,
+        cf.setImpairmentCharges(extractValue(root, ns, companyNs,
                 "AssetImpairmentCharges",
                 "ImpairmentOfLongLivedAssetsHeldForUse"
         ));
 
-        cf.setGainsLossesOnAssetSales(extractValue(root, ns,
+        cf.setGainsLossesOnAssetSales(extractValue(root, ns, companyNs,
                 "GainLossOnSaleOfPropertyPlantEquipment",
                 "GainLossOnDispositionOfAssets"
         ));
 
         // Working Capital Changes
-        cf.setChangeInReceivables(extractValue(root, ns,
+        cf.setChangeInReceivables(extractValue(root, ns, companyNs,
                 "IncreaseDecreaseInAccountsReceivable"
         ));
 
-        cf.setChangeInPrepaidExpenses(extractValue(root, ns,
+        cf.setChangeInPrepaidExpenses(extractValue(root, ns, companyNs,
                 "IncreaseDecreaseInPrepaidExpense",
                 "IncreaseDecreaseInPrepaidDeferredExpenseAndOtherAssets"
         ));
 
-        cf.setChangeInAccountsPayable(extractValue(root, ns,
+        cf.setChangeInAccountsPayable(extractValue(root, ns, companyNs,
                 "IncreaseDecreaseInAccountsPayable"
         ));
 
-        cf.setChangeInAirTrafficLiability(extractValue(root, ns,
+        cf.setChangeInAirTrafficLiability(extractValue(root, ns, companyNs,
                 "IncreaseDecreaseInAirTrafficLiability",
                 "IncreaseDecreaseInCustomerDeposits",
                 "IncreaseDecreaseInContractWithCustomerLiability"
         ));
 
-        cf.setChangeInAccruedLiabilities(extractValue(root, ns,
+        cf.setChangeInAccruedLiabilities(extractValue(root, ns, companyNs,
                 "IncreaseDecreaseInAccruedLiabilities"
         ));
 
-        cf.setNetCashFromOperating(extractValue(root, ns,
+        cf.setNetCashFromOperating(extractValue(root, ns, companyNs,
                 "NetCashProvidedByUsedInOperatingActivities"
         ));
 
         // Investing Activities
-        double capex = extractValue(root, ns,
+        double capex = extractValue(root, ns, companyNs,
                 "PaymentsToAcquirePropertyPlantAndEquipment",
                 "CapitalExpendituresIncurredButNotYetPaid"
         );
         cf.setCapitalExpenditures(-Math.abs(capex));
 
-        cf.setAircraftPurchases(extractValue(root, ns,
+        cf.setAircraftPurchases(extractValue(root, ns, companyNs,
                 "PaymentsToAcquireAircraft",
                 "PaymentsToAcquireFlightEquipment"
         ));
 
-        cf.setPreDeliveryDeposits(extractValue(root, ns,
+        cf.setPreDeliveryDeposits(extractValue(root, ns, companyNs,
                 "PaymentsForAircraftPredeliveryDeposits",
                 "IncreaseDecreaseInPrepaidDepositOnAircraft"
         ));
 
-        cf.setProceedsFromAssetSales(extractValue(root, ns,
+        cf.setProceedsFromAssetSales(extractValue(root, ns, companyNs,
                 "ProceedsFromSaleOfPropertyPlantAndEquipment"
         ));
 
-        cf.setPurchasesOfInvestments(extractValue(root, ns,
+        cf.setPurchasesOfInvestments(extractValue(root, ns, companyNs,
                 "PaymentsToAcquireInvestments",
                 "PaymentsToAcquireMarketableSecurities"
         ));
 
-        cf.setSalesOfInvestments(extractValue(root, ns,
+        cf.setSalesOfInvestments(extractValue(root, ns, companyNs,
                 "ProceedsFromSaleOfAvailableForSaleSecurities",
                 "ProceedsFromSaleAndMaturityOfMarketableSecurities"
         ));
 
-        cf.setNetCashFromInvesting(extractValue(root, ns,
+        cf.setNetCashFromInvesting(extractValue(root, ns, companyNs,
                 "NetCashProvidedByUsedInInvestingActivities"
         ));
 
         // Financing Activities
-        cf.setProceedsFromDebtIssuance(extractValue(root, ns,
+        cf.setProceedsFromDebtIssuance(extractValue(root, ns, companyNs,
                 "ProceedsFromIssuanceOfLongTermDebt",
                 "ProceedsFromDebtNetOfIssuanceCosts"
         ));
 
-        cf.setDebtRepayments(extractValue(root, ns,
+        cf.setDebtRepayments(extractValue(root, ns, companyNs,
                 "RepaymentsOfLongTermDebt",
                 "RepaymentsOfDebt"
         ));
 
-        cf.setProceedsFromSaleLeasebacks(extractValue(root, ns,
+        cf.setProceedsFromSaleLeasebacks(extractValue(root, ns, companyNs,
                 "ProceedsFromSaleAndLeasebackTransactions"
         ));
 
-        cf.setFinanceLeasePayments(extractValue(root, ns,
+        cf.setFinanceLeasePayments(extractValue(root, ns, companyNs,
                 "FinanceLeasePrincipalPayments",
                 "RepaymentsOfLongTermCapitalLeaseObligations"
         ));
 
-        cf.setProceedsFromStockIssuance(extractValue(root, ns,
+        cf.setProceedsFromStockIssuance(extractValue(root, ns, companyNs,
                 "ProceedsFromIssuanceOfCommonStock"
         ));
 
-        cf.setStockRepurchases(extractValue(root, ns,
+        cf.setStockRepurchases(extractValue(root, ns, companyNs,
                 "PaymentsForRepurchaseOfCommonStock"
         ));
 
-        cf.setDividendsPaid(extractValue(root, ns,
+        cf.setDividendsPaid(extractValue(root, ns, companyNs,
                 "PaymentsOfDividends"
         ));
 
-        cf.setNetCashFromFinancing(extractValue(root, ns,
+        cf.setNetCashFromFinancing(extractValue(root, ns, companyNs,
                 "NetCashProvidedByUsedInFinancingActivities"
         ));
 
         // Summary
-        cf.setNetChangeInCash(extractValue(root, ns,
+        cf.setNetChangeInCash(extractValue(root, ns, companyNs,
                 "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsPeriodIncreaseDecreaseIncludingExchangeRateEffect",
                 "CashAndCashEquivalentsPeriodIncreaseDecrease"
         ));
 
-        cf.setCashAtEnd(extractValue(root, ns,
+        cf.setCashAtEnd(extractValue(root, ns, companyNs,
                 "CashAndCashEquivalentsAtCarryingValue",
                 "Cash"
         ));
 
         // Supplemental
-        cf.setCashPaidForInterest(extractValue(root, ns,
+        cf.setCashPaidForInterest(extractValue(root, ns, companyNs,
                 "InterestPaidNet",
                 "InterestPaid"
         ));
 
-        cf.setCashPaidForTaxes(extractValue(root, ns,
+        cf.setCashPaidForTaxes(extractValue(root, ns, companyNs,
                 "IncomeTaxesPaidNet",
                 "IncomeTaxesPaid"
         ));
