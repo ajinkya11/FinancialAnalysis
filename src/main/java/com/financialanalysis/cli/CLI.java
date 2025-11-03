@@ -640,6 +640,29 @@ public class CLI implements Callable<Integer> {
         }
     }
 
+    @Command(name = "inspect-xbrl", description = "Inspect an XBRL file to see available tags and values")
+    public int inspectXBRL(
+            @Parameters(index = "0", description = "Path to XBRL file") String xbrlFilePath,
+            @Option(names = {"-f", "--filter"}, description = "Filter tags containing keyword") String filter
+    ) {
+        try {
+            File xbrlFile = new File(xbrlFilePath);
+            if (!xbrlFile.exists()) {
+                System.err.println("Error: XBRL file not found: " + xbrlFilePath);
+                return 1;
+            }
+
+            XBRLParser parser = new XBRLParser();
+            parser.inspectXBRLFile(xbrlFile, filter);
+
+            return 0;
+        } catch (Exception e) {
+            System.err.println("Error: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
     @Command(name = "glossary", description = "Look up financial metrics and abbreviations")
     public int showGlossary(
             @Parameters(index = "0", description = "Term to look up (optional)", arity = "0..1") String term,

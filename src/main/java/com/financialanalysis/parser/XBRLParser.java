@@ -1039,6 +1039,103 @@ public class XBRLParser {
     }
 
     /**
+     * Diagnostic method to inspect XBRL file and display available tags
+     */
+    public void inspectXBRLFile(File xbrlFile, String filter) throws Exception {
+        System.out.println("═".repeat(120));
+        System.out.println("XBRL FILE INSPECTION: " + xbrlFile.getName());
+        System.out.println("═".repeat(120));
+        System.out.println();
+
+        SAXBuilder saxBuilder = new SAXBuilder();
+        Document document = saxBuilder.build(xbrlFile);
+        Element rootElement = document.getRootElement();
+
+        // Find US-GAAP namespace
+        Namespace usGaapNs = findNamespace(rootElement, "us-gaap");
+        System.out.println("US-GAAP Namespace: " + (usGaapNs != null ? usGaapNs.getURI() : "NOT FOUND"));
+        System.out.println();
+
+        // Get all namespaces
+        System.out.println("Available Namespaces:");
+        System.out.println("─".repeat(120));
+        for (Namespace ns : rootElement.getNamespacesInScope()) {
+            System.out.printf("%-15s %s%n", ns.getPrefix(), ns.getURI());
+        }
+        System.out.println();
+
+        if (usGaapNs == null) {
+            System.err.println("ERROR: US-GAAP namespace not found!");
+            return;
+        }
+
+        // Collect all elements with values
+        Map<String, String> tagValues = new TreeMap<>();
+        collectElements(rootElement, usGaapNs, tagValues);
+
+        // Display tags (filtered if requested)
+        System.out.println("US-GAAP Tags and Values:");
+        System.out.println("─".repeat(120));
+        System.out.printf("%-60s %20s%n", "Tag Name", "Value");
+        System.out.println("─".repeat(120));
+
+        int count = 0;
+        for (Map.Entry<String, String> entry : tagValues.entrySet()) {
+            String tagName = entry.getKey();
+            String value = entry.getValue();
+
+            // Apply filter if provided
+            if (filter != null && !filter.isEmpty()) {
+                if (!tagName.toLowerCase().contains(filter.toLowerCase())) {
+                    continue;
+                }
+            }
+
+            // Format value for display
+            String displayValue = value;
+            if (value.length() > 18) {
+                displayValue = value.substring(0, 15) + "...";
+            }
+
+            System.out.printf("%-60s %20s%n", tagName, displayValue);
+            count++;
+
+            if (count >= 100 && filter == null) {
+                System.out.println("... (showing first 100 tags, use -f to filter)");
+                break;
+            }
+        }
+
+        System.out.println("─".repeat(120));
+        System.out.println("Total tags found: " + tagValues.size());
+        if (filter != null) {
+            System.out.println("Tags matching filter '" + filter + "': " + count);
+        }
+        System.out.println("═".repeat(120));
+    }
+
+    /**
+     * Helper method to recursively collect all elements with the given namespace
+     */
+    private void collectElements(Element element, Namespace ns, Map<String, String> tagValues) {
+        // Check if this element is in the target namespace
+        if (element.getNamespace().equals(ns)) {
+            String tagName = element.getName();
+            String value = element.getTextTrim();
+
+            if (!value.isEmpty()) {
+                // Store or update the value (last occurrence wins)
+                tagValues.put(tagName, value);
+            }
+        }
+
+        // Recursively process children
+        for (Element child : element.getChildren()) {
+            collectElements(child, ns, tagValues);
+        }
+    }
+
+    /**
      * Container class for detailed financial data
      */
     public static class DetailedFinancialData {
