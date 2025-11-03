@@ -241,7 +241,9 @@ public class CLI implements Callable<Integer> {
             return 1;
         }
 
-        System.out.println("Comparing companies: " + String.join(", ", tickers));
+        System.out.println("═".repeat(120));
+        System.out.println("COMPARATIVE FINANCIAL ANALYSIS: " + String.join(" vs ", tickers));
+        System.out.println("═".repeat(120));
         System.out.println();
 
         try {
@@ -249,6 +251,9 @@ public class CLI implements Callable<Integer> {
             MetricsCalculator calculator = new MetricsCalculator();
 
             // Load all companies and calculate metrics
+            List<Company> companies = new ArrayList<>();
+            List<List<FinancialMetrics>> allMetrics = new ArrayList<>();
+
             for (String ticker : tickers) {
                 Company company = dataStore.loadCompany(ticker);
                 if (company == null) {
@@ -262,24 +267,178 @@ public class CLI implements Callable<Integer> {
                     continue;
                 }
 
-                // Display latest year metrics
-                FinancialMetrics latest = metricsList.get(metricsList.size() - 1);
-                System.out.println("=== " + company.getName() + " (" + ticker + ") - FY" + latest.getFiscalYear() + " ===");
-                System.out.println("  Gross Margin:      " + MetricsCalculator.formatPercentage(latest.getGrossMargin()));
-                System.out.println("  Operating Margin:  " + MetricsCalculator.formatPercentage(latest.getOperatingMargin()));
-                System.out.println("  Net Margin:        " + MetricsCalculator.formatPercentage(latest.getNetMargin()));
-                System.out.println("  ROE:               " + MetricsCalculator.formatPercentage(latest.getReturnOnEquity()));
-                System.out.println("  ROA:               " + MetricsCalculator.formatPercentage(latest.getReturnOnAssets()));
-                System.out.println("  Current Ratio:     " + MetricsCalculator.formatRatio(latest.getCurrentRatio()));
-                System.out.println("  Debt/Equity:       " + MetricsCalculator.formatRatio(latest.getDebtToEquity()));
-                System.out.println();
+                companies.add(company);
+                allMetrics.add(metricsList);
             }
+
+            if (companies.size() < 2) {
+                System.err.println("Error: Need at least 2 valid companies to compare");
+                return 1;
+            }
+
+            // Print side-by-side comparison tables
+            printComparisonOverview(companies, allMetrics);
+            System.out.println();
+
+            printComparisonTable("PROFITABILITY - Margins (Latest Year)", companies, allMetrics,
+                    new String[]{"Gross Margin", "Operating Margin", "Net Margin", "EBITDA Margin"},
+                    new MetricExtractor[]{
+                            m -> MetricsCalculator.formatPercentage(m.getGrossMargin()),
+                            m -> MetricsCalculator.formatPercentage(m.getOperatingMargin()),
+                            m -> MetricsCalculator.formatPercentage(m.getNetMargin()),
+                            m -> MetricsCalculator.formatPercentage(m.getEbitdaMargin())
+                    });
+
+            printComparisonTable("PROFITABILITY - Returns on Capital (Latest Year)", companies, allMetrics,
+                    new String[]{"ROA", "ROE", "ROIC", "ROCE"},
+                    new MetricExtractor[]{
+                            m -> MetricsCalculator.formatPercentage(m.getReturnOnAssets()),
+                            m -> MetricsCalculator.formatPercentage(m.getReturnOnEquity()),
+                            m -> MetricsCalculator.formatPercentage(m.getReturnOnInvestedCapital()),
+                            m -> MetricsCalculator.formatPercentage(m.getReturnOnCapitalEmployed())
+                    });
+
+            printComparisonTable("GROWTH - 3-Year Average", companies, allMetrics,
+                    new String[]{"Revenue Growth", "OpIncome Growth", "NetIncome Growth", "EPS Growth"},
+                    new MetricExtractor[]{
+                            m -> MetricsCalculator.formatPercentage(m.getRevenueGrowthRate()),
+                            m -> MetricsCalculator.formatPercentage(m.getOperatingIncomeGrowthRate()),
+                            m -> MetricsCalculator.formatPercentage(m.getNetIncomeGrowthRate()),
+                            m -> MetricsCalculator.formatPercentage(m.getEpsGrowthRate())
+                    });
+
+            printComparisonTable("LIQUIDITY (Latest Year)", companies, allMetrics,
+                    new String[]{"Current Ratio", "Quick Ratio", "Cash Ratio", "OCF Ratio"},
+                    new MetricExtractor[]{
+                            m -> MetricsCalculator.formatRatio(m.getCurrentRatio()),
+                            m -> MetricsCalculator.formatRatio(m.getQuickRatio()),
+                            m -> MetricsCalculator.formatRatio(m.getCashRatio()),
+                            m -> MetricsCalculator.formatRatio(m.getOperatingCashFlowRatio())
+                    });
+
+            printComparisonTable("WORKING CAPITAL - Days (Latest Year, Lower is Better)", companies, allMetrics,
+                    new String[]{"DSO", "DIO", "Cash Conv Cycle"},
+                    new MetricExtractor[]{
+                            m -> MetricsCalculator.formatDays(m.getDaysSalesOutstanding()),
+                            m -> MetricsCalculator.formatDays(m.getDaysInventoryOutstanding()),
+                            m -> MetricsCalculator.formatDays(m.getCashConversionCycle())
+                    });
+
+            printComparisonTable("LEVERAGE & SOLVENCY (Latest Year)", companies, allMetrics,
+                    new String[]{"Debt/Equity", "Debt/Assets", "Interest Coverage", "EBITDA Coverage"},
+                    new MetricExtractor[]{
+                            m -> MetricsCalculator.formatRatio(m.getDebtToEquity()),
+                            m -> MetricsCalculator.formatRatio(m.getDebtToAssets()),
+                            m -> MetricsCalculator.formatRatio(m.getInterestCoverage()),
+                            m -> MetricsCalculator.formatRatio(m.getEbitdaCoverage())
+                    });
+
+            printComparisonTable("EFFICIENCY - Turnover Ratios (Latest Year)", companies, allMetrics,
+                    new String[]{"Asset Turnover", "Fixed Asset", "Inventory", "Receivables"},
+                    new MetricExtractor[]{
+                            m -> MetricsCalculator.formatRatio(m.getAssetTurnover()),
+                            m -> MetricsCalculator.formatRatio(m.getFixedAssetTurnover()),
+                            m -> MetricsCalculator.formatRatio(m.getInventoryTurnover()),
+                            m -> MetricsCalculator.formatRatio(m.getReceivablesTurnover())
+                    });
+
+            printComparisonTable("CASH FLOW (Latest Year)", companies, allMetrics,
+                    new String[]{"OCF Margin", "FCF Margin", "CapEx/Revenue", "CapEx/OCF"},
+                    new MetricExtractor[]{
+                            m -> MetricsCalculator.formatPercentage(m.getOperatingCashFlowMargin()),
+                            m -> MetricsCalculator.formatPercentage(m.getFreeCashFlowMargin()),
+                            m -> MetricsCalculator.formatPercentage(m.getCapexToRevenue()),
+                            m -> MetricsCalculator.formatPercentage(m.getCapexToOperatingCashFlow())
+                    });
+
+            printComparisonTable("QUALITY OF EARNINGS (Latest Year, Higher is Better)", companies, allMetrics,
+                    new String[]{"OCF/NetIncome", "FCF/NetIncome", "CF-ROA", "CF-ROE"},
+                    new MetricExtractor[]{
+                            m -> MetricsCalculator.formatRatio(m.getCashFlowToNetIncome()),
+                            m -> MetricsCalculator.formatRatio(m.getFreeCashFlowToNetIncome()),
+                            m -> MetricsCalculator.formatPercentage(m.getCashFlowReturnOnAssets()),
+                            m -> MetricsCalculator.formatPercentage(m.getCashFlowReturnOnEquity())
+                    });
 
             return 0;
         } catch (Exception e) {
             System.err.println("Error: " + e.getMessage());
             e.printStackTrace();
             return 1;
+        }
+    }
+
+    // Helper interface for extracting metrics
+    @FunctionalInterface
+    private interface MetricExtractor {
+        String extract(FinancialMetrics metrics);
+    }
+
+    private void printComparisonOverview(List<Company> companies, List<List<FinancialMetrics>> allMetrics) {
+        System.out.println("COMPANY OVERVIEW");
+        System.out.println("─".repeat(120));
+        System.out.print(String.format("%-30s", ""));
+        for (Company company : companies) {
+            System.out.print(String.format("%-25s", company.getTicker()));
+        }
+        System.out.println();
+        System.out.println("─".repeat(120));
+
+        System.out.print(String.format("%-30s", "Company Name:"));
+        for (Company company : companies) {
+            System.out.print(String.format("%-25s", truncate(company.getName(), 24)));
+        }
+        System.out.println();
+
+        System.out.print(String.format("%-30s", "Industry:"));
+        for (Company company : companies) {
+            String industry = company.getIndustry() != null ? company.getIndustry() : "N/A";
+            System.out.print(String.format("%-25s", truncate(industry, 24)));
+        }
+        System.out.println();
+
+        System.out.print(String.format("%-30s", "Fiscal Year (Latest):"));
+        for (List<FinancialMetrics> metrics : allMetrics) {
+            int latestYear = metrics.get(metrics.size() - 1).getFiscalYear();
+            System.out.print(String.format("%-25s", latestYear));
+        }
+        System.out.println();
+
+        System.out.print(String.format("%-30s", "Years of Data:"));
+        for (List<FinancialMetrics> metrics : allMetrics) {
+            System.out.print(String.format("%-25s", metrics.size()));
+        }
+        System.out.println();
+        System.out.println("─".repeat(120));
+    }
+
+    private void printComparisonTable(String title, List<Company> companies,
+                                      List<List<FinancialMetrics>> allMetrics,
+                                      String[] metricNames, MetricExtractor[] extractors) {
+        System.out.println();
+        System.out.println("═".repeat(120));
+        System.out.println(title);
+        System.out.println("═".repeat(120));
+
+        // Print header
+        System.out.print(String.format("%-30s", "Metric"));
+        for (Company company : companies) {
+            System.out.print(String.format("%-25s", company.getTicker()));
+        }
+        System.out.println();
+        System.out.println("─".repeat(120));
+
+        // Print each metric row
+        for (int i = 0; i < metricNames.length; i++) {
+            System.out.print(String.format("%-30s", metricNames[i]));
+
+            for (List<FinancialMetrics> metrics : allMetrics) {
+                // Get latest year metrics
+                FinancialMetrics latest = metrics.get(metrics.size() - 1);
+                String value = extractors[i].extract(latest);
+                System.out.print(String.format("%-25s", value));
+            }
+            System.out.println();
         }
     }
 
