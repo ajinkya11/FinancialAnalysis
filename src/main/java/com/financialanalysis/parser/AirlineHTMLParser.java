@@ -181,8 +181,7 @@ public class AirlineHTMLParser {
 
     // Helper methods for keyword detection
     private boolean containsRevenueKeywords(String text) {
-        // More flexible matching: check if table contains revenue-related terms
-        // and at least two of the common revenue categories
+        // Check for revenue context
         boolean hasRevenueContext = text.contains("operating revenue") ||
                                      text.contains("total revenue") ||
                                      text.contains("operating revenues") ||
@@ -190,23 +189,25 @@ public class AirlineHTMLParser {
                                      text.contains("revenue by source") ||
                                      text.contains("revenue by type") ||
                                      text.contains("operating revenues:") ||
+                                     text.contains("passenger revenues") ||
                                      (text.contains("revenue") && (text.contains("operating") || text.contains("total")));
 
         int categoryCount = 0;
-        // JetBlue and other airlines use various terms for passenger revenue
+        // Count revenue categories - airlines use various terms
         if (text.contains("passenger") || text.contains("transportation")) categoryCount++;
         if (text.contains("cargo") || text.contains("freight") || text.contains("mail")) categoryCount++;
         if (text.contains("other") || text.contains("ancillary") || text.contains("loyalty") ||
-            text.contains("trueblue") || text.contains("mileageplus")) categoryCount++;
+            text.contains("trueblue") || text.contains("mileageplus") || text.contains("mileage plus")) categoryCount++;
 
-        // Alternative: check if it's explicitly labeled as revenue breakdown/composition
+        // Check for explicit revenue table indicators
         boolean isRevenueTable = text.contains("revenue composition") ||
                                   text.contains("revenue breakdown") ||
                                   text.contains("revenues by category") ||
                                   text.contains("revenues by type") ||
-                                  text.contains("consolidated statements of operations");
+                                  text.contains("operating revenues by") ||
+                                  (text.contains("consolidated statements of operations") && categoryCount >= 2);
 
-        // More lenient: Match if we have revenue context and at least 1 category, OR explicit revenue table
+        // Match if we have revenue context with categories, OR it's an explicit revenue table
         boolean matches = (hasRevenueContext && categoryCount >= 1) || (isRevenueTable && categoryCount >= 1);
 
         if (matches) {

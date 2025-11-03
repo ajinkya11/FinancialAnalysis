@@ -530,13 +530,19 @@ public class XBRLParser {
 
         stmt.setRegionalCapacityPurchase(extractValue(root, ns, companyNs,
                 "RegionalCapacityPurchaseExpense",
-                "ContractualAgreementsExpense"
+                "ContractualAgreementsExpense",
+                "RegionalAffiliateExpense",
+                "PurchasedServicesExpense",
+                "CapacityPurchaseAgreementExpense"
         ));
 
         stmt.setLandingFeesAndRent(extractValue(root, ns, companyNs,
                 "LandingFeesAndOtherRentalsCosts",
+                "LandingFeesAndOtherRentals",
                 "AirportFeesAndRent",
-                "LandingFees"
+                "LandingFees",
+                "AirportAndAirwayFees",
+                "LandingAndOtherFees"
         ));
 
         stmt.setAircraftMaintenance(extractValue(root, ns, companyNs,
