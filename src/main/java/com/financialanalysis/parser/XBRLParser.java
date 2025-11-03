@@ -270,13 +270,17 @@ public class XBRLParser {
             }
         }
 
-        // Validate and fix total liabilities if it equals total assets (accounting equation check)
-        if (statement.getTotalLiabilities() > 0 && statement.getTotalAssets() > 0 &&
-            statement.getShareholderEquity() > 0) {
-
-            // Check if liabilities was incorrectly set to total assets
-            if (Math.abs(statement.getTotalLiabilities() - statement.getTotalAssets()) < 1000) {
-                // Calculate correct liabilities: Assets = Liabilities + Equity
+        // Validate and calculate Total Liabilities using accounting equation if needed
+        // Assets = Liabilities + Equity, so Liabilities = Assets - Equity
+        if (statement.getTotalAssets() > 0 && statement.getShareholderEquity() > 0) {
+            if (statement.getTotalLiabilities() == 0) {
+                // Liabilities not found in XBRL, calculate from accounting equation
+                double calculatedLiabilities = statement.getTotalAssets() - statement.getShareholderEquity();
+                logger.info("Calculating total liabilities from accounting equation: {} - {} = {}",
+                        statement.getTotalAssets(), statement.getShareholderEquity(), calculatedLiabilities);
+                statement.setTotalLiabilities(calculatedLiabilities);
+            } else if (Math.abs(statement.getTotalLiabilities() - statement.getTotalAssets()) < 1000) {
+                // Liabilities was incorrectly set to total assets, correct it
                 double correctLiabilities = statement.getTotalAssets() - statement.getShareholderEquity();
                 logger.warn("Correcting total liabilities from {} to {} using accounting equation",
                         statement.getTotalLiabilities(), correctLiabilities);
@@ -477,13 +481,17 @@ public class XBRLParser {
 
         stmt.setPassengerRevenue(extractValue(root, ns, companyNs,
                 "PassengerRevenue",
+                "PassengerRevenueGross",
                 "TransportationRevenue",
-                "AirTransportationRevenue"
+                "AirTransportationRevenue",
+                "RevenuePassenger"
         ));
 
         stmt.setCargoRevenue(extractValue(root, ns, companyNs,
                 "CargoRevenue",
-                "FreightRevenue"
+                "FreightRevenue",
+                "CargoAndFreightRevenue",
+                "RevenueCargo"
         ));
 
         // Other revenue = Total - Passenger - Cargo
@@ -503,15 +511,21 @@ public class XBRLParser {
 
         // Operating Expenses
         stmt.setAircraftFuel(extractValue(root, ns, companyNs,
-                "FuelAndFuelRelatedExpense",
                 "AircraftFuelExpense",
-                "FuelExpense"
+                "FuelAndFuelRelatedExpense",
+                "FuelExpense",
+                "AircraftFuelAndRelatedTaxes",
+                "FuelCosts",
+                "CostOfGoodsAndServicesSoldFuel"
         ));
 
         stmt.setSalariesAndRelatedCosts(extractValue(root, ns, companyNs,
                 "LaborAndRelatedExpense",
                 "SalariesAndWages",
-                "EmployeeBenefitsAndShareBasedCompensation"
+                "EmployeeBenefitsAndShareBasedCompensation",
+                "SalariesWagesAndOfficersCompensation",
+                "LaborRelatedExpense",
+                "WagesAndSalaries"
         ));
 
         stmt.setRegionalCapacityPurchase(extractValue(root, ns, companyNs,
@@ -526,9 +540,12 @@ public class XBRLParser {
         ));
 
         stmt.setAircraftMaintenance(extractValue(root, ns, companyNs,
-                "MaintenanceMaterialsAndRepairs",
                 "AircraftMaintenanceExpense",
-                "MaintenanceExpense"
+                "AircraftMaintenanceMaterialsAndRepairs",
+                "MaintenanceMaterialsAndRepairs",
+                "MaintenanceExpense",
+                "MaintenanceAndRepairs",
+                "AircraftMaintenanceCost"
         ));
 
         stmt.setDepreciation(extractValue(root, ns, companyNs,
@@ -869,7 +886,9 @@ public class XBRLParser {
         ));
 
         bs.setTotalLiabilities(extractValue(root, ns, companyNs,
-                "Liabilities"
+                "Liabilities",
+                "LiabilitiesTotal",
+                "LiabilitiesAndStockholdersEquity"  // Will be corrected by validation below
         ));
 
         // Stockholders' Equity
@@ -905,11 +924,20 @@ public class XBRLParser {
                 "Equity"
         ));
 
-        // Validate accounting equation
-        if (bs.getTotalLiabilities() > 0 && bs.getTotalAssets() > 0 && bs.getTotalStockholdersEquity() > 0) {
-            if (Math.abs(bs.getTotalLiabilities() - bs.getTotalAssets()) < 1000) {
+        // Validate and calculate Total Liabilities using accounting equation if needed
+        // Assets = Liabilities + Equity, so Liabilities = Assets - Equity
+        if (bs.getTotalAssets() > 0 && bs.getTotalStockholdersEquity() > 0) {
+            if (bs.getTotalLiabilities() == 0) {
+                // Liabilities not found in XBRL, calculate from accounting equation
+                double calculatedLiabilities = bs.getTotalAssets() - bs.getTotalStockholdersEquity();
+                logger.info("Calculating total liabilities from accounting equation: {} - {} = {}",
+                        bs.getTotalAssets(), bs.getTotalStockholdersEquity(), calculatedLiabilities);
+                bs.setTotalLiabilities(calculatedLiabilities);
+            } else if (Math.abs(bs.getTotalLiabilities() - bs.getTotalAssets()) < 1000) {
+                // Liabilities was incorrectly set to total assets, correct it
                 double correctLiabilities = bs.getTotalAssets() - bs.getTotalStockholdersEquity();
-                logger.warn("Correcting liabilities using accounting equation");
+                logger.warn("Correcting total liabilities from {} to {} using accounting equation",
+                        bs.getTotalLiabilities(), correctLiabilities);
                 bs.setTotalLiabilities(correctLiabilities);
             }
         }
@@ -989,13 +1017,18 @@ public class XBRLParser {
         // Investing Activities
         double capex = extractValue(root, ns, companyNs,
                 "PaymentsToAcquirePropertyPlantAndEquipment",
-                "CapitalExpendituresIncurredButNotYetPaid"
+                "CapitalExpendituresIncurredButNotYetPaid",
+                "PaymentsForCapitalImprovements",
+                "PaymentsToAcquireProductiveAssets",
+                "CapitalExpenditure"
         );
         cf.setCapitalExpenditures(-Math.abs(capex));
 
         cf.setAircraftPurchases(extractValue(root, ns, companyNs,
                 "PaymentsToAcquireAircraft",
-                "PaymentsToAcquireFlightEquipment"
+                "PaymentsToAcquireFlightEquipment",
+                "PaymentsToAcquireAircraftAndRelatedEquipment",
+                "PaymentsForAircraftPurchases"
         ));
 
         cf.setPreDeliveryDeposits(extractValue(root, ns, companyNs,
