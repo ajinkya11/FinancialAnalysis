@@ -41,20 +41,31 @@ public class AirlineHTMLParser {
             // Look for revenue tables - they typically have headers like:
             // "Operating Revenue", "Passenger", "Cargo", "Other"
             Elements tables = doc.select("table");
+            logger.debug("Found {} total tables in HTML", tables.size());
 
+            int tableIndex = 0;
             for (Element table : tables) {
+                tableIndex++;
                 // Check if this table contains revenue data
                 String tableText = table.text().toLowerCase();
+
+                // Log table preview for debugging
+                if (containsRevenueKeywords(tableText) || tableText.contains("revenue")) {
+                    logger.debug("Table {} contains revenue keywords. Preview: {}",
+                        tableIndex, tableText.substring(0, Math.min(200, tableText.length())));
+                }
+
                 if (containsRevenueKeywords(tableText)) {
                     extractRevenueFromTable(table, statement, fiscalYear);
                     if (statement.getPassengerRevenue() > 0) {
-                        logger.info("Successfully extracted revenue breakdown");
+                        logger.info("Successfully extracted revenue breakdown from table {}", tableIndex);
                         return;  // Found and extracted, done
                     }
                 }
             }
 
             logger.warn("Could not find revenue breakdown table in HTML");
+            logger.debug("Searched {} tables for revenue data", tables.size());
         } catch (IOException e) {
             logger.error("Error parsing HTML file: {}", e.getMessage());
         }
@@ -73,13 +84,25 @@ public class AirlineHTMLParser {
 
             // Look for operating statistics tables
             Elements tables = doc.select("table");
+            logger.debug("Found {} total tables in HTML", tables.size());
 
+            int tableIndex = 0;
             for (Element table : tables) {
+                tableIndex++;
                 String tableText = table.text().toLowerCase();
+
+                // Log tables that contain any operating metric keywords
+                if (tableText.contains("available seat") || tableText.contains("asm") ||
+                    tableText.contains("passenger miles") || tableText.contains("rpm") ||
+                    tableText.contains("load factor") || tableText.contains("statistic")) {
+                    logger.debug("Table {} may contain operating stats. Preview: {}",
+                        tableIndex, tableText.substring(0, Math.min(200, tableText.length())));
+                }
+
                 if (containsOperatingStatsKeywords(tableText)) {
                     extractOperatingStatsFromTable(table, metrics, fiscalYear);
                     if (metrics.getAvailableSeatMiles() > 0) {
-                        logger.info("Successfully extracted operating statistics");
+                        logger.info("Successfully extracted operating statistics from table {}", tableIndex);
                         // Calculate derived metrics
                         metrics.calculateLoadFactor();
                         metrics.calculateEmployeeProductivity();
@@ -89,6 +112,7 @@ public class AirlineHTMLParser {
             }
 
             logger.warn("Could not find operating statistics table in HTML");
+            logger.debug("Searched {} tables for operating statistics", tables.size());
         } catch (IOException e) {
             logger.error("Error parsing HTML file: {}", e.getMessage());
         }
@@ -129,21 +153,47 @@ public class AirlineHTMLParser {
 
     // Helper methods for keyword detection
     private boolean containsRevenueKeywords(String text) {
-        return (text.contains("passenger revenue") || text.contains("passenger") && text.contains("revenue"))
-            && (text.contains("cargo revenue") || text.contains("cargo") && text.contains("revenue"))
-            && (text.contains("operating revenue") || text.contains("total revenue"));
+        // More flexible matching: check if table contains revenue-related terms
+        // and at least two of the common revenue categories
+        boolean hasRevenueContext = text.contains("operating revenue") ||
+                                     text.contains("total revenue") ||
+                                     (text.contains("revenue") && (text.contains("operating") || text.contains("total")));
+
+        int categoryCount = 0;
+        if (text.contains("passenger")) categoryCount++;
+        if (text.contains("cargo") || text.contains("freight")) categoryCount++;
+        if (text.contains("other") || text.contains("ancillary") || text.contains("loyalty")) categoryCount++;
+
+        // Match if we have revenue context and at least 2 revenue categories
+        return hasRevenueContext && categoryCount >= 2;
     }
 
     private boolean containsOperatingStatsKeywords(String text) {
         int keywordCount = 0;
-        if (text.contains("available seat miles") || text.contains("asm")) keywordCount++;
-        if (text.contains("revenue passenger miles") || text.contains("rpm")) keywordCount++;
-        if (text.contains("load factor")) keywordCount++;
-        if (text.contains("rasm") || text.contains("revenue per asm")) keywordCount++;
-        if (text.contains("casm") || text.contains("cost per asm")) keywordCount++;
+        // Check for ASM variations
+        if (text.contains("available seat miles") || text.contains("available seat-miles") ||
+            text.contains("asm") || text.contains("asms") || text.contains("capacity")) keywordCount++;
 
-        // Need at least 3 key metrics present to be confident it's the right table
-        return keywordCount >= 3;
+        // Check for RPM variations
+        if (text.contains("revenue passenger miles") || text.contains("revenue passenger-miles") ||
+            text.contains("rpm") || text.contains("rpms") || text.contains("traffic")) keywordCount++;
+
+        // Check for load factor
+        if (text.contains("load factor") || text.contains("passenger load")) keywordCount++;
+
+        // Check for unit revenue metrics
+        if (text.contains("rasm") || text.contains("prasm") || text.contains("revenue per asm") ||
+            text.contains("unit revenue") || text.contains("yield")) keywordCount++;
+
+        // Check for unit cost metrics
+        if (text.contains("casm") || text.contains("cost per asm") || text.contains("unit cost")) keywordCount++;
+
+        // Check for passengers or departures
+        if (text.contains("passengers") && !text.contains("revenue passenger miles")) keywordCount++;
+        if (text.contains("departures") || text.contains("flights")) keywordCount++;
+
+        // Need at least 2 key metrics present (lowered from 3 for more flexibility)
+        return keywordCount >= 2;
     }
 
     private boolean containsSegmentKeywords(String text) {
@@ -154,6 +204,7 @@ public class AirlineHTMLParser {
     // Revenue extraction logic
     private void extractRevenueFromTable(Element table, DetailedIncomeStatement statement, int fiscalYear) {
         Elements rows = table.select("tr");
+        logger.debug("Extracting revenue from table with {} rows", rows.size());
 
         for (Element row : rows) {
             Elements cells = row.select("td, th");
@@ -163,32 +214,44 @@ public class AirlineHTMLParser {
 
             // Find the column index for the target year
             int yearColumnIndex = findYearColumn(row, fiscalYear);
-            if (yearColumnIndex < 0) continue;
+            if (yearColumnIndex < 0 || yearColumnIndex >= cells.size()) continue;
 
-            // Extract values based on row labels
-            if (firstCell.contains("passenger") && firstCell.contains("revenue") && !firstCell.contains("cargo")) {
+            // Extract values based on row labels - more flexible matching
+            // Passenger revenue
+            if ((firstCell.contains("passenger") && (firstCell.contains("revenue") || firstCell.contains("operating"))) &&
+                !firstCell.contains("cargo") && !firstCell.contains("freight")) {
                 double value = extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
                     statement.setPassengerRevenue(value * 1_000_000); // Convert to actual value
-                    logger.debug("Extracted passenger revenue: {}", value);
+                    logger.debug("Extracted passenger revenue: {} from row: {}", value, firstCell);
                 }
-            } else if (firstCell.contains("cargo") && firstCell.contains("revenue")) {
+            }
+            // Cargo/Freight revenue
+            else if ((firstCell.contains("cargo") || firstCell.contains("freight")) &&
+                     (firstCell.contains("revenue") || firstCell.contains("operating"))) {
                 double value = extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
                     statement.setCargoRevenue(value * 1_000_000);
-                    logger.debug("Extracted cargo revenue: {}", value);
+                    logger.debug("Extracted cargo revenue: {} from row: {}", value, firstCell);
                 }
-            } else if ((firstCell.contains("other") || firstCell.contains("ancillary")) && firstCell.contains("revenue")) {
+            }
+            // Other revenue (includes ancillary, loyalty, etc.)
+            else if ((firstCell.contains("other") || firstCell.contains("ancillary") ||
+                      firstCell.contains("loyalty") || firstCell.contains("mileageplus")) &&
+                     (firstCell.contains("revenue") || firstCell.contains("operating"))) {
                 double value = extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
                     statement.setOtherOperatingRevenue(value * 1_000_000);
-                    logger.debug("Extracted other revenue: {}", value);
+                    logger.debug("Extracted other revenue: {} from row: {}", value, firstCell);
                 }
-            } else if (firstCell.contains("total operating revenue") || firstCell.equals("total revenue")) {
+            }
+            // Total operating revenue
+            else if (firstCell.contains("total") && (firstCell.contains("operating revenue") ||
+                     firstCell.contains("operating revenues") || firstCell.equals("total revenue"))) {
                 double value = extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
                     statement.setTotalOperatingRevenue(value * 1_000_000);
-                    logger.debug("Extracted total revenue: {}", value);
+                    logger.debug("Extracted total revenue: {} from row: {}", value, firstCell);
                 }
             }
         }
@@ -204,11 +267,18 @@ public class AirlineHTMLParser {
                 logger.debug("Calculated other revenue: {}", other / 1_000_000);
             }
         }
+
+        logger.debug("Revenue extraction complete. Passenger: {}, Cargo: {}, Other: {}, Total: {}",
+            statement.getPassengerRevenue() / 1_000_000,
+            statement.getCargoRevenue() / 1_000_000,
+            statement.getOtherOperatingRevenue() / 1_000_000,
+            statement.getTotalOperatingRevenue() / 1_000_000);
     }
 
     // Operating statistics extraction logic
     private void extractOperatingStatsFromTable(Element table, AirlineOperatingMetrics metrics, int fiscalYear) {
         Elements rows = table.select("tr");
+        logger.debug("Extracting operating stats from table with {} rows", rows.size());
 
         for (Element row : rows) {
             Elements cells = row.select("td, th");
@@ -216,77 +286,111 @@ public class AirlineHTMLParser {
 
             String firstCell = cells.get(0).text().toLowerCase().trim();
             int yearColumnIndex = findYearColumn(row, fiscalYear);
-            if (yearColumnIndex < 0) continue;
+            if (yearColumnIndex < 0 || yearColumnIndex >= cells.size()) continue;
 
-            // Extract various operating metrics
-            if (firstCell.contains("available seat miles") || firstCell.equals("asm") || firstCell.equals("asms")) {
+            // Extract various operating metrics with more flexible matching
+            // Available Seat Miles (ASM)
+            if (firstCell.contains("available seat") || firstCell.contains("available seat-miles") ||
+                firstCell.matches("^asms?$") || firstCell.contains("capacity (asm")) {
                 long value = (long) extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
                     metrics.setAvailableSeatMiles(value * 1_000_000); // Usually in millions
-                    logger.debug("Extracted ASMs: {}", value);
+                    logger.debug("Extracted ASMs: {} from row: {}", value, firstCell);
                 }
-            } else if (firstCell.contains("revenue passenger miles") || firstCell.equals("rpm") || firstCell.equals("rpms")) {
+            }
+            // Revenue Passenger Miles (RPM)
+            else if (firstCell.contains("revenue passenger") || firstCell.contains("revenue passenger-miles") ||
+                     firstCell.matches("^rpms?$") || firstCell.contains("traffic (rpm")) {
                 long value = (long) extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
                     metrics.setRevenuePassengerMiles(value * 1_000_000);
-                    logger.debug("Extracted RPMs: {}", value);
+                    logger.debug("Extracted RPMs: {} from row: {}", value, firstCell);
                 }
-            } else if (firstCell.contains("load factor")) {
+            }
+            // Load Factor
+            else if (firstCell.contains("load factor") || firstCell.contains("passenger load")) {
                 double value = extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
                     metrics.setLoadFactor(value);
-                    logger.debug("Extracted load factor: {}%", value);
+                    logger.debug("Extracted load factor: {}% from row: {}", value, firstCell);
                 }
-            } else if (firstCell.contains("prasm") || (firstCell.contains("passenger") && firstCell.contains("per asm"))) {
+            }
+            // Passenger Revenue per ASM (PRASM)
+            else if (firstCell.contains("prasm") || firstCell.contains("passenger revenue per asm") ||
+                     (firstCell.contains("passenger") && firstCell.contains("yield") && firstCell.contains("asm"))) {
                 double value = extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
                     metrics.setPassengerRevenuePerASM(value);
-                    logger.debug("Extracted PRASM: {} cents", value);
+                    logger.debug("Extracted PRASM: {} cents from row: {}", value, firstCell);
                 }
-            } else if (firstCell.contains("rasm") && !firstCell.contains("prasm")) {
+            }
+            // Total Revenue per ASM (RASM)
+            else if ((firstCell.contains("rasm") && !firstCell.contains("prasm")) ||
+                     firstCell.contains("total revenue per asm") || firstCell.contains("unit revenue")) {
                 double value = extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
                     metrics.setTotalRevenuePerASM(value);
-                    logger.debug("Extracted RASM: {} cents", value);
+                    logger.debug("Extracted RASM: {} cents from row: {}", value, firstCell);
                 }
-            } else if (firstCell.contains("casm") && !firstCell.contains("ex")) {
+            }
+            // Cost per ASM (CASM)
+            else if ((firstCell.contains("casm") && !firstCell.contains("ex") && !firstCell.contains("excluding")) ||
+                     firstCell.contains("total cost per asm") || firstCell.contains("unit cost")) {
                 double value = extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
                     metrics.setOperatingCostPerASM(value);
-                    logger.debug("Extracted CASM: {} cents", value);
+                    logger.debug("Extracted CASM: {} cents from row: {}", value, firstCell);
                 }
-            } else if (firstCell.contains("casm") && (firstCell.contains("ex") || firstCell.contains("excluding"))) {
+            }
+            // CASM excluding fuel
+            else if ((firstCell.contains("casm") && (firstCell.contains("ex") || firstCell.contains("excluding"))) ||
+                     firstCell.contains("cost per asm excluding fuel")) {
                 double value = extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
                     metrics.setCasmExcludingFuel(value);
-                    logger.debug("Extracted CASM-ex: {} cents", value);
+                    logger.debug("Extracted CASM-ex: {} cents from row: {}", value, firstCell);
                 }
-            } else if (firstCell.contains("yield")) {
+            }
+            // Yield (passenger yield)
+            else if (firstCell.contains("yield") && !firstCell.contains("asm")) {
                 double value = extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
                     metrics.setYield(value);
-                    logger.debug("Extracted yield: {} cents", value);
+                    logger.debug("Extracted yield: {} cents from row: {}", value, firstCell);
                 }
-            } else if (firstCell.contains("passengers") && !firstCell.contains("revenue")) {
+            }
+            // Passengers carried
+            else if ((firstCell.contains("passengers") || firstCell.contains("passenger enplanements")) &&
+                     !firstCell.contains("revenue passenger miles")) {
                 long value = (long) extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
                     metrics.setPassengersCarried(value * 1_000_000); // Usually in millions
-                    logger.debug("Extracted passengers: {}", value);
+                    logger.debug("Extracted passengers: {} from row: {}", value, firstCell);
                 }
-            } else if (firstCell.contains("departures")) {
+            }
+            // Departures / Flights
+            else if (firstCell.contains("departures") || firstCell.contains("flights operated")) {
                 int value = (int) extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
                     metrics.setDepartures(value);
-                    logger.debug("Extracted departures: {}", value);
+                    logger.debug("Extracted departures: {} from row: {}", value, firstCell);
                 }
-            } else if (firstCell.contains("aircraft") && (firstCell.contains("end") || firstCell.contains("period"))) {
+            }
+            // Aircraft count
+            else if (firstCell.contains("aircraft") && (firstCell.contains("end") || firstCell.contains("period") ||
+                     firstCell.contains("fleet"))) {
                 int value = (int) extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
                     metrics.setAircraftAtPeriodEnd(value);
-                    logger.debug("Extracted aircraft count: {}", value);
+                    logger.debug("Extracted aircraft count: {} from row: {}", value, firstCell);
                 }
             }
         }
+
+        logger.debug("Operating stats extraction complete. ASMs: {}, RPMs: {}, Load Factor: {}%",
+            metrics.getAvailableSeatMiles() / 1_000_000,
+            metrics.getRevenuePassengerMiles() / 1_000_000,
+            metrics.getLoadFactor());
     }
 
     // Segment extraction logic
@@ -331,19 +435,35 @@ public class AirlineHTMLParser {
         Elements cells = row.select("td, th");
         String yearStr = String.valueOf(targetYear);
 
+        // First pass: exact year match
         for (int i = 0; i < cells.size(); i++) {
             String cellText = cells.get(i).text();
             if (cellText.contains(yearStr)) {
+                logger.trace("Found year {} in column {} with text: {}", yearStr, i, cellText);
                 return i;
             }
         }
 
-        // If not found, try the pattern where year is last 4 digits
-        for (int i = 0; i < cells.size(); i++) {
-            String cellText = cells.get(i).text();
-            if (cellText.matches(".*" + yearStr + ".*")) {
-                return i;
+        // Second pass: check header row for years
+        Element table = row.parent();
+        if (table != null) {
+            Elements headerRows = table.select("thead tr, tr:has(th)");
+            for (Element headerRow : headerRows) {
+                Elements headerCells = headerRow.select("th, td");
+                for (int i = 0; i < headerCells.size(); i++) {
+                    String headerText = headerCells.get(i).text();
+                    if (headerText.contains(yearStr)) {
+                        logger.trace("Found year {} in header column {}", yearStr, i);
+                        return i;
+                    }
+                }
             }
+        }
+
+        // If still not found, default to first data column (index 1, after the label column)
+        if (cells.size() > 1) {
+            logger.trace("Year {} not found in row, defaulting to column 1", yearStr);
+            return 1;
         }
 
         return -1; // Year not found in this row
