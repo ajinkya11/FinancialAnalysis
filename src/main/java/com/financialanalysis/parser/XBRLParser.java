@@ -472,41 +472,92 @@ public class XBRLParser {
     private DetailedIncomeStatement parseDetailedIncomeStatement(Element root, Namespace ns, Namespace companyNs, int fiscalYear) {
         DetailedIncomeStatement stmt = new DetailedIncomeStatement(fiscalYear);
 
-        // Revenue breakdown
-        stmt.setTotalOperatingRevenue(extractValue(root, ns, companyNs,
+        // Revenue breakdown - Try to get total operating revenue first
+        double totalRevenue = extractValue(root, ns, companyNs,
+                "OperatingRevenue",
+                "OperatingRevenues",
+                "TotalOperatingRevenue",
+                "TotalOperatingRevenues",
                 "Revenues",
                 "RevenueFromContractWithCustomerExcludingAssessedTax",
                 "SalesRevenueNet"
-        ));
+        );
 
-        stmt.setPassengerRevenue(extractValue(root, ns, companyNs,
+        double passengerRevenue = extractValue(root, ns, companyNs,
                 "PassengerRevenue",
+                "PassengerRevenues",
                 "PassengerRevenueGross",
                 "TransportationRevenue",
                 "AirTransportationRevenue",
-                "RevenuePassenger"
-        ));
+                "RevenuePassenger",
+                "ScheduledServiceRevenue"
+        );
 
-        stmt.setCargoRevenue(extractValue(root, ns, companyNs,
+        double cargoRevenue = extractValue(root, ns, companyNs,
                 "CargoRevenue",
+                "CargoRevenues",
                 "FreightRevenue",
                 "CargoAndFreightRevenue",
-                "RevenueCargo"
-        ));
+                "RevenueCargo",
+                "MailRevenue"
+        );
 
-        // Other revenue = Total - Passenger - Cargo
-        stmt.setOtherOperatingRevenue(stmt.getTotalOperatingRevenue() - stmt.getPassengerRevenue() - stmt.getCargoRevenue());
+        // Try to extract "Other Revenue" directly first
+        double otherRevenue = extractValue(root, ns, companyNs,
+                "OtherOperatingRevenue",
+                "OtherOperatingRevenues",
+                "AncillaryRevenue",
+                "LoyaltyProgramRevenue",
+                "MiscellaneousOperatingRevenue"
+        );
 
-        // Loyalty program revenue
+        // Revenue calculation logic - ensure consistency
+        if (totalRevenue > 0 && passengerRevenue > 0 && cargoRevenue >= 0) {
+            // We have total and components - calculate other if missing
+            if (otherRevenue == 0) {
+                otherRevenue = totalRevenue - passengerRevenue - cargoRevenue;
+            }
+            // Verify total matches sum (within rounding)
+            double calculatedTotal = passengerRevenue + cargoRevenue + otherRevenue;
+            if (Math.abs(calculatedTotal - totalRevenue) > 1000) { // Allow $1k rounding error
+                logger.warn("Revenue mismatch for year {}: Total={}, Sum={}. Using calculated sum.",
+                    fiscalYear, totalRevenue / 1_000_000, calculatedTotal / 1_000_000);
+                totalRevenue = calculatedTotal;
+            }
+        } else if (passengerRevenue > 0) {
+            // We have components but not total - sum them
+            totalRevenue = passengerRevenue + cargoRevenue + otherRevenue;
+            logger.info("Calculated total revenue from components for year {}: ${} (Pax: ${}, Cargo: ${}, Other: ${})",
+                fiscalYear,
+                totalRevenue / 1_000_000,
+                passengerRevenue / 1_000_000,
+                cargoRevenue / 1_000_000,
+                otherRevenue / 1_000_000);
+        } else if (totalRevenue > 0) {
+            // We have total but not components - issue a warning
+            logger.warn("Have total revenue (${}) but missing revenue breakdown for year {}",
+                totalRevenue / 1_000_000, fiscalYear);
+        }
+
+        // Set all values
+        stmt.setTotalOperatingRevenue(totalRevenue);
+        stmt.setPassengerRevenue(passengerRevenue);
+        stmt.setCargoRevenue(cargoRevenue);
+        stmt.setOtherOperatingRevenue(otherRevenue);
+
+        // Loyalty program revenue (subset of other revenue)
         stmt.setLoyaltyProgramRevenue(extractValue(root, ns, companyNs,
                 "LoyaltyProgramRevenue",
                 "MileageCreditRevenue",
-                "FrequentFlyerMileageCreditRevenue"
+                "FrequentFlyerMileageCreditRevenue",
+                "MileagePlusRevenue",
+                "TrueBluePointsRevenue"
         ));
 
         stmt.setBaggageFees(extractValue(root, ns, companyNs,
                 "BaggageFeesRevenue",
-                "PassengerBaggageRevenue"
+                "PassengerBaggageRevenue",
+                "BaggageFees"
         ));
 
         // Operating Expenses
@@ -633,16 +684,21 @@ public class XBRLParser {
         stmt.setInterestExpense(extractValue(root, ns, companyNs,
                 "InterestExpense",
                 "InterestExpenseDebt",
+                "InterestExpenseDebtAndCapitalLease",
                 "InterestPaid",
                 "InterestAndDebtExpense",
-                "InterestExpenseNet"
+                "InterestExpenseNet",
+                "InterestExpenseBorrowings",
+                "InterestExpenseOther",
+                "InterestExpenseTotal"
         ));
 
         stmt.setInterestIncome(extractValue(root, ns, companyNs,
                 "InterestIncome",
                 "InterestIncomeOperating",
                 "InterestAndDividendIncomeOperating",
-                "InvestmentIncomeInterest"
+                "InvestmentIncomeInterest",
+                "InterestIncomeOther"
         ));
 
         stmt.setOtherIncomeExpense(extractValue(root, ns, companyNs,
