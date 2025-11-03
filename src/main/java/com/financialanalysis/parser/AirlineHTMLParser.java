@@ -55,11 +55,31 @@ public class AirlineHTMLParser {
                         tableIndex, tableText.substring(0, Math.min(200, tableText.length())));
                 }
 
+                // Skip quarterly/interim tables - we want annual data only
+                if (isQuarterlyTable(tableText)) {
+                    logger.debug("Skipping table {} - appears to be quarterly/interim data", tableIndex);
+                    continue;
+                }
+
                 if (containsRevenueKeywords(tableText)) {
+                    // Prefer tables that explicitly mention annual periods
+                    boolean isAnnualTable = tableText.contains("year ended") ||
+                                           tableText.contains("twelve months") ||
+                                           tableText.contains("years ended");
+
                     extractRevenueFromTable(table, statement, fiscalYear);
                     if (statement.getPassengerRevenue() > 0) {
-                        logger.info("Successfully extracted revenue breakdown from table {}", tableIndex);
-                        return;  // Found and extracted, done
+                        // Validate: passenger revenue should be significant portion of total
+                        if (validateRevenueData(statement)) {
+                            logger.info("Successfully extracted revenue breakdown from table {}", tableIndex);
+                            return;  // Found and extracted, done
+                        } else {
+                            logger.warn("Table {} extracted revenue but validation failed (likely quarterly data), continuing search...", tableIndex);
+                            // Reset and continue looking
+                            statement.setPassengerRevenue(0);
+                            statement.setCargoRevenue(0);
+                            statement.setOtherOperatingRevenue(0);
+                        }
                     }
                 }
             }
@@ -97,6 +117,12 @@ public class AirlineHTMLParser {
                     tableText.contains("load factor") || tableText.contains("statistic")) {
                     logger.debug("Table {} may contain operating stats. Preview: {}",
                         tableIndex, tableText.substring(0, Math.min(200, tableText.length())));
+                }
+
+                // Skip quarterly/interim tables
+                if (isQuarterlyTable(tableText)) {
+                    logger.debug("Skipping table {} - appears to be quarterly/interim data", tableIndex);
+                    continue;
                 }
 
                 if (containsOperatingStatsKeywords(tableText)) {
@@ -158,20 +184,28 @@ public class AirlineHTMLParser {
         boolean hasRevenueContext = text.contains("operating revenue") ||
                                      text.contains("total revenue") ||
                                      text.contains("operating revenues") ||
+                                     text.contains("total revenues") ||
+                                     text.contains("revenue by source") ||
+                                     text.contains("revenue by type") ||
+                                     text.contains("operating revenues:") ||
                                      (text.contains("revenue") && (text.contains("operating") || text.contains("total")));
 
         int categoryCount = 0;
-        if (text.contains("passenger")) categoryCount++;
-        if (text.contains("cargo") || text.contains("freight")) categoryCount++;
-        if (text.contains("other") || text.contains("ancillary") || text.contains("loyalty")) categoryCount++;
+        // JetBlue and other airlines use various terms for passenger revenue
+        if (text.contains("passenger") || text.contains("transportation")) categoryCount++;
+        if (text.contains("cargo") || text.contains("freight") || text.contains("mail")) categoryCount++;
+        if (text.contains("other") || text.contains("ancillary") || text.contains("loyalty") ||
+            text.contains("trueblue") || text.contains("mileageplus")) categoryCount++;
 
         // Alternative: check if it's explicitly labeled as revenue breakdown/composition
         boolean isRevenueTable = text.contains("revenue composition") ||
                                   text.contains("revenue breakdown") ||
-                                  text.contains("operating revenues by category");
+                                  text.contains("revenues by category") ||
+                                  text.contains("revenues by type") ||
+                                  text.contains("consolidated statements of operations");
 
-        // Match if we have revenue context and at least 2 revenue categories, OR explicit revenue table
-        boolean matches = (hasRevenueContext && categoryCount >= 2) || (isRevenueTable && categoryCount >= 1);
+        // More lenient: Match if we have revenue context and at least 1 category, OR explicit revenue table
+        boolean matches = (hasRevenueContext && categoryCount >= 1) || (isRevenueTable && categoryCount >= 1);
 
         if (matches) {
             logger.trace("Revenue keywords matched - context: {}, categories: {}, explicit: {}",
@@ -184,41 +218,65 @@ public class AirlineHTMLParser {
     private boolean containsOperatingStatsKeywords(String text) {
         int keywordCount = 0;
 
-        // Check for ASM variations
+        // Check for ASM variations - more flexible
         boolean hasASM = text.contains("available seat miles") || text.contains("available seat-miles") ||
+                         text.contains("available seat mile") ||
                          text.contains("capacity (asm") || text.contains("capacity(asm") ||
-                         (text.contains("asm") && !text.contains("rasm") && !text.contains("prasm") && !text.contains("casm"));
+                         text.contains("capacity, asm");
+        // Also check for standalone ASM (avoiding RASM, PRASM, CASM)
+        if (!hasASM && text.contains(" asm") && !text.contains("rasm") && !text.contains("prasm") && !text.contains("casm")) {
+            hasASM = true;
+        }
         if (hasASM) keywordCount++;
 
-        // Check for RPM variations
+        // Check for RPM variations - more flexible
         boolean hasRPM = text.contains("revenue passenger miles") || text.contains("revenue passenger-miles") ||
+                         text.contains("revenue passenger mile") ||
                          text.contains("traffic (rpm") || text.contains("traffic(rpm") ||
-                         (text.contains("rpm") && !text.contains("prpm"));
+                         text.contains("traffic, rpm");
+        // Also check for standalone RPM (avoiding PRPM)
+        if (!hasRPM && text.contains(" rpm") && !text.contains("prpm")) {
+            hasRPM = true;
+        }
         if (hasRPM) keywordCount++;
 
         // Check for load factor
-        if (text.contains("load factor") || text.contains("passenger load") || text.contains("load %")) keywordCount++;
+        if (text.contains("load factor") || text.contains("passenger load") ||
+            text.contains("load %") || text.contains("load factor %")) keywordCount++;
 
         // Check for unit revenue metrics
         if (text.contains("rasm") || text.contains("prasm") || text.contains("revenue per asm") ||
-            text.contains("unit revenue") || text.contains("passenger yield") || text.contains("yield per")) keywordCount++;
+            text.contains("unit revenue") || text.contains("passenger yield") ||
+            text.contains("yield per") || text.contains("total revenue per asm")) keywordCount++;
 
         // Check for unit cost metrics
         if (text.contains("casm") || text.contains("cost per asm") || text.contains("unit cost") ||
-            text.contains("operating expense per asm")) keywordCount++;
+            text.contains("operating expense per asm") || text.contains("operating cost per asm")) keywordCount++;
 
         // Check for passengers or departures (common in operating stats tables)
         if (text.contains("passengers enplaned") || text.contains("passengers carried") ||
+            text.contains("scheduled service passengers") ||
             (text.contains("passengers") && !text.contains("revenue passenger miles"))) keywordCount++;
-        if (text.contains("departures") || text.contains("flights operated") || text.contains("flight operations")) keywordCount++;
+        if (text.contains("departures") || text.contains("flights operated") ||
+            text.contains("flight operations") || text.contains("scheduled departures")) keywordCount++;
+
+        // Check for aircraft count
+        if (text.contains("aircraft in service") || text.contains("aircraft at period end") ||
+            text.contains("average aircraft") || text.contains("aircraft operated")) keywordCount++;
+
+        // Check for block hours or other flight metrics
+        if (text.contains("block hours") || text.contains("flight hours") ||
+            text.contains("aircraft utilization")) keywordCount++;
 
         // Check for explicit operating statistics labels
         boolean isOperatingStatsTable = text.contains("operating statistics") ||
                                          text.contains("operational statistics") ||
                                          text.contains("operating data") ||
-                                         text.contains("statistical data");
+                                         text.contains("statistical data") ||
+                                         text.contains("operating performance") ||
+                                         text.contains("key operating statistics");
 
-        // Match if we have at least 2 keywords OR explicit operating stats label with at least 1 keyword
+        // More lenient: Match if we have at least 2 keywords OR explicit operating stats label with at least 1 keyword
         boolean matches = keywordCount >= 2 || (isOperatingStatsTable && keywordCount >= 1);
 
         if (matches) {
@@ -279,8 +337,9 @@ public class AirlineHTMLParser {
             logger.trace("Examining row: '{}' with value: '{}'", firstCell, cellValue);
 
             // Extract values based on row labels - more flexible matching
-            // Passenger revenue (MOST SPECIFIC FIRST)
-            if ((firstCell.contains("passenger") && (firstCell.contains("revenue") || firstCell.contains("operating"))) &&
+            // Passenger revenue (MOST SPECIFIC FIRST) - includes "transportation" for airlines like JetBlue
+            if (((firstCell.contains("passenger") || firstCell.contains("transportation")) &&
+                 (firstCell.contains("revenue") || firstCell.contains("operating"))) &&
                 !firstCell.contains("cargo") && !firstCell.contains("freight") &&
                 !firstCell.contains("per") && !firstCell.contains("yield") &&
                 !firstCell.contains("total")) {
@@ -642,5 +701,108 @@ public class AirlineHTMLParser {
         }
 
         return result.toString().trim();
+    }
+
+    /**
+     * Check if a table contains quarterly or interim period data
+     */
+    private boolean isQuarterlyTable(String tableText) {
+        return tableText.contains("three months") ||
+               tableText.contains("quarter ended") ||
+               tableText.contains("quarterly") ||
+               tableText.contains("q1 ") || tableText.contains("q2 ") ||
+               tableText.contains("q3 ") || tableText.contains("q4 ") ||
+               tableText.contains("first quarter") ||
+               tableText.contains("second quarter") ||
+               tableText.contains("third quarter") ||
+               tableText.contains("fourth quarter") ||
+               (tableText.contains("period ended") && !tableText.contains("year"));
+    }
+
+    /**
+     * Validate extracted revenue data to ensure it's reasonable
+     * Passenger revenue should typically be 80%+ of total revenue for passenger airlines
+     */
+    private boolean validateRevenueData(DetailedIncomeStatement statement) {
+        if (statement.getPassengerRevenue() <= 0) {
+            logger.debug("Validation failed: No passenger revenue extracted");
+            return false;
+        }
+
+        // If we have total revenue from XBRL, validate against it
+        if (statement.getTotalOperatingRevenue() > 0) {
+            double passengerPct = statement.getPassengerRevenue() / statement.getTotalOperatingRevenue();
+
+            logger.debug("Validation check: Passenger revenue = {}, Total revenue = {}, Passenger % = {}",
+                statement.getPassengerRevenue() / 1_000_000,
+                statement.getTotalOperatingRevenue() / 1_000_000,
+                passengerPct * 100);
+
+            // Passenger revenue should be at least 70% for passenger airlines
+            // (allowing some flexibility for cargo-heavy carriers)
+            if (passengerPct < 0.70) {
+                logger.warn("Validation failed: Passenger revenue ({}) is only {}% of total revenue ({}), expected >= 70%",
+                    statement.getPassengerRevenue() / 1_000_000,
+                    passengerPct * 100,
+                    statement.getTotalOperatingRevenue() / 1_000_000);
+                return false;
+            }
+        }
+
+        // Additional sanity check: passenger revenue should be in billions for major airlines
+        // (at least $100M annually)
+        if (statement.getPassengerRevenue() < 100_000_000) {
+            logger.warn("Validation failed: Passenger revenue (${}) seems too low for annual data",
+                statement.getPassengerRevenue() / 1_000_000);
+            return false;
+        }
+
+        logger.debug("Validation passed for revenue data");
+        return true;
+    }
+
+    /**
+     * Calculate RASM and CASM if not directly available in the HTML
+     * This is called as a fallback when metrics are not explicitly listed
+     */
+    public void calculateUnitMetrics(AirlineOperatingMetrics metrics, DetailedIncomeStatement incomeStatement,
+                                     DetailedBalanceSheet balanceSheet, DetailedCashFlow cashFlow) {
+        if (metrics.getAvailableSeatMiles() <= 0) {
+            logger.debug("Cannot calculate unit metrics: ASMs not available");
+            return;
+        }
+
+        long asms = metrics.getAvailableSeatMiles();
+
+        // Calculate RASM if not already set
+        if (metrics.getTotalRevenuePerASM() == 0 && incomeStatement != null && incomeStatement.getTotalOperatingRevenue() > 0) {
+            // RASM = (Total Revenue / ASMs) * 100 to get cents
+            double rasm = (incomeStatement.getTotalOperatingRevenue() / (double) asms) * 100.0;
+            metrics.setTotalRevenuePerASM(rasm);
+            logger.info("Calculated RASM: {} cents", String.format("%.2f", rasm));
+        }
+
+        // Calculate PRASM if not already set
+        if (metrics.getPassengerRevenuePerASM() == 0 && incomeStatement != null && incomeStatement.getPassengerRevenue() > 0) {
+            double prasm = (incomeStatement.getPassengerRevenue() / (double) asms) * 100.0;
+            metrics.setPassengerRevenuePerASM(prasm);
+            logger.info("Calculated PRASM: {} cents", String.format("%.2f", prasm));
+        }
+
+        // Calculate CASM if not already set
+        if (metrics.getOperatingCostPerASM() == 0 && incomeStatement != null && incomeStatement.getTotalOperatingExpenses() > 0) {
+            // CASM = (Total Operating Expenses / ASMs) * 100 to get cents
+            double casm = (incomeStatement.getTotalOperatingExpenses() / (double) asms) * 100.0;
+            metrics.setOperatingCostPerASM(casm);
+            logger.info("Calculated CASM: {} cents", String.format("%.2f", casm));
+        }
+
+        // Calculate CASM-ex (excluding fuel) if not already set
+        if (metrics.getCasmExcludingFuel() == 0 && incomeStatement != null &&
+            incomeStatement.getTotalOperatingExpenses() > 0 && incomeStatement.getFuelExpense() > 0) {
+            double casmEx = ((incomeStatement.getTotalOperatingExpenses() - incomeStatement.getFuelExpense()) / (double) asms) * 100.0;
+            metrics.setCasmExcludingFuel(casmEx);
+            logger.info("Calculated CASM-ex: {} cents", String.format("%.2f", casmEx));
+        }
     }
 }
