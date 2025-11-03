@@ -65,7 +65,7 @@ public class AirlineHTMLParser {
      * Typically found in a section titled "Operating Statistics" or "Statistical Data"
      */
     public AirlineOperatingMetrics parseOperatingStatistics(File htmlFile, int fiscalYear) {
-        AirlineOperatingMetrics metrics = new AirlineOperatingMetrics(fiscalYear);
+        AirlineOperatingMetrics metrics = new AirlineOperatingMetrics(fiscalYear, "Annual");
 
         try {
             Document doc = Jsoup.parse(htmlFile, "UTF-8");
@@ -80,7 +80,9 @@ public class AirlineHTMLParser {
                     extractOperatingStatsFromTable(table, metrics, fiscalYear);
                     if (metrics.getAvailableSeatMiles() > 0) {
                         logger.info("Successfully extracted operating statistics");
-                        metrics.calculateDerivedMetrics();
+                        // Calculate derived metrics
+                        metrics.calculateLoadFactor();
+                        metrics.calculateEmployeeProductivity();
                         return metrics;
                     }
                 }
@@ -250,13 +252,13 @@ public class AirlineHTMLParser {
             } else if (firstCell.contains("casm") && !firstCell.contains("ex")) {
                 double value = extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
-                    metrics.setCostPerASM(value);
+                    metrics.setOperatingCostPerASM(value);
                     logger.debug("Extracted CASM: {} cents", value);
                 }
             } else if (firstCell.contains("casm") && (firstCell.contains("ex") || firstCell.contains("excluding"))) {
                 double value = extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
-                    metrics.setCostPerASMExcludingFuel(value);
+                    metrics.setCasmExcludingFuel(value);
                     logger.debug("Extracted CASM-ex: {} cents", value);
                 }
             } else if (firstCell.contains("yield")) {
@@ -280,7 +282,7 @@ public class AirlineHTMLParser {
             } else if (firstCell.contains("aircraft") && (firstCell.contains("end") || firstCell.contains("period"))) {
                 int value = (int) extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
-                    metrics.setAircraftInServiceEndOfPeriod(value);
+                    metrics.setAircraftAtPeriodEnd(value);
                     logger.debug("Extracted aircraft count: {}", value);
                 }
             }
@@ -290,6 +292,7 @@ public class AirlineHTMLParser {
     // Segment extraction logic
     private void extractSegmentsFromTable(Element table, List<SegmentInformation> segments, int fiscalYear) {
         Elements rows = table.select("tr");
+        SegmentInformation segmentInfo = new SegmentInformation(fiscalYear);
 
         for (Element row : rows) {
             Elements cells = row.select("td, th");
@@ -304,17 +307,22 @@ public class AirlineHTMLParser {
                 int yearColumnIndex = findYearColumn(row, fiscalYear);
                 if (yearColumnIndex < 0) continue;
 
-                SegmentInformation segment = new SegmentInformation();
-                segment.setFiscalYear(fiscalYear);
-                segment.setSegmentName(capitalizeWords(firstCell));
+                SegmentInformation.Segment segment = new SegmentInformation.Segment();
+                segment.setName(capitalizeWords(firstCell));
+                segment.setType("Geographic");
 
                 double value = extractNumber(cells.get(yearColumnIndex).text());
                 if (value > 0) {
-                    segment.setRevenue(value * 1_000_000);
-                    segments.add(segment);
-                    logger.debug("Extracted segment {}: {}", segment.getSegmentName(), value);
+                    segment.setTotalRevenue(value * 1_000_000);
+                    segmentInfo.addSegment(segment);
+                    logger.debug("Extracted segment {}: {}", segment.getName(), value);
                 }
             }
+        }
+
+        // Add the SegmentInformation object to the list if it has segments
+        if (!segmentInfo.getSegments().isEmpty()) {
+            segments.add(segmentInfo);
         }
     }
 
