@@ -563,7 +563,7 @@ public class XBRLParser {
                 "AmortizationOfIntangibleAssets",
                 "DepreciationAndAmortizationAmortizationComponent",
                 "AmortizationExpense"
-        ));
+        );
 
         // If we got combined D&A but no separate amortization, use the combined value for depreciation
         // and try to extract separate components
