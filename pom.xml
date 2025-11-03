@@ -47,6 +47,13 @@
             <version>2.0.6.1</version>
         </dependency>
 
+        <!-- HTML Parsing for 10-K tables -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.17.2</version>
+        </dependency>
+
         <!-- Logging -->
         <dependency>
             <groupId>org.slf4j</groupId>
