@@ -236,14 +236,27 @@ public class CLI implements Callable<Integer> {
                     continue;
                 }
 
-                // Parse revenue breakdown
-                htmlParser.parseRevenueBreakdown(htmlFile, incomeStatement, fiscalYear);
+                // Check if revenue breakdown was already extracted from XBRL (inline XBRL)
+                // If yes, skip HTML extraction to avoid overwriting correct XBRL data with HTML table data
+                boolean hasXBRLRevenue = incomeStatement.getPassengerRevenue() > 0 ||
+                                        incomeStatement.getCargoRevenue() > 0 ||
+                                        incomeStatement.getOtherOperatingRevenue() > 0;
 
-                if (incomeStatement.getPassengerRevenue() > 0) {
-                    System.out.println("    ✓ Extracted revenue breakdown:");
+                if (hasXBRLRevenue) {
+                    System.out.println("    ℹ Skipping HTML revenue extraction - using XBRL data:");
                     System.out.println("      - Passenger: $" + String.format("%.0fM", incomeStatement.getPassengerRevenue() / 1_000_000));
                     System.out.println("      - Cargo: $" + String.format("%.0fM", incomeStatement.getCargoRevenue() / 1_000_000));
                     System.out.println("      - Other: $" + String.format("%.0fM", incomeStatement.getOtherOperatingRevenue() / 1_000_000));
+                } else {
+                    // Parse revenue breakdown from HTML only if not available in XBRL
+                    htmlParser.parseRevenueBreakdown(htmlFile, incomeStatement, fiscalYear);
+
+                    if (incomeStatement.getPassengerRevenue() > 0) {
+                        System.out.println("    ✓ Extracted revenue breakdown from HTML:");
+                        System.out.println("      - Passenger: $" + String.format("%.0fM", incomeStatement.getPassengerRevenue() / 1_000_000));
+                        System.out.println("      - Cargo: $" + String.format("%.0fM", incomeStatement.getCargoRevenue() / 1_000_000));
+                        System.out.println("      - Other: $" + String.format("%.0fM", incomeStatement.getOtherOperatingRevenue() / 1_000_000));
+                    }
                 }
 
                 // Parse operating statistics
