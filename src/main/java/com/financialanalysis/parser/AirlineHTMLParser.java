@@ -253,7 +253,7 @@ public class AirlineHTMLParser {
 
         // Determine year column once for entire table
         int yearColumnIndex = findYearColumnForTable(table, fiscalYear);
-        logger.debug("Using column {} for year {}", yearColumnIndex, fiscalYear);
+        logger.info("Revenue table: Using column {} for year {}", yearColumnIndex, fiscalYear);
 
         for (Element row : rows) {
             Elements cells = row.select("td, th");
@@ -270,13 +270,20 @@ public class AirlineHTMLParser {
             boolean isSubtotal = (firstCell.contains("subtotal") || firstCell.contains("sub-total")) &&
                                  !firstCell.contains("total operating");
 
-            if (isSubtotal) continue;
+            if (isSubtotal) {
+                logger.trace("Skipping subtotal row: {}", firstCell);
+                continue;
+            }
+
+            // Log every row we're examining
+            logger.trace("Examining row: '{}' with value: '{}'", firstCell, cellValue);
 
             // Extract values based on row labels - more flexible matching
-            // Passenger revenue
+            // Passenger revenue (MOST SPECIFIC FIRST)
             if ((firstCell.contains("passenger") && (firstCell.contains("revenue") || firstCell.contains("operating"))) &&
                 !firstCell.contains("cargo") && !firstCell.contains("freight") &&
-                !firstCell.contains("per") && !firstCell.contains("yield")) {
+                !firstCell.contains("per") && !firstCell.contains("yield") &&
+                !firstCell.contains("total")) {
                 double value = extractNumber(cellValue);
                 if (value > 0) {
                     statement.setPassengerRevenue(value * 1_000_000); // Convert to actual value
@@ -286,36 +293,34 @@ public class AirlineHTMLParser {
             // Cargo/Freight revenue
             else if ((firstCell.contains("cargo") || firstCell.contains("freight")) &&
                      (firstCell.contains("revenue") || firstCell.contains("operating")) &&
-                     !firstCell.contains("per")) {
+                     !firstCell.contains("per") && !firstCell.contains("total")) {
                 double value = extractNumber(cellValue);
                 if (value > 0) {
                     statement.setCargoRevenue(value * 1_000_000);
                     logger.debug("Extracted cargo revenue: {} (raw: '{}') from row: {}", value, cellValue, firstCell);
                 }
             }
-            // Other revenue (includes ancillary, loyalty, etc.)
+            // Total operating revenue (CHECK THIS BEFORE "OTHER" to avoid confusion)
+            else if ((firstCell.contains("total operating revenue") ||
+                      firstCell.contains("total operating revenues") ||
+                      (firstCell.startsWith("total") && firstCell.contains("revenue") && !firstCell.contains("passenger") && !firstCell.contains("cargo"))) &&
+                     !firstCell.contains("per") && !firstCell.contains("excluding")) {
+                double value = extractNumber(cellValue);
+                if (value > 0) {
+                    // Only set if this looks like a reasonable total
+                    statement.setTotalOperatingRevenue(value * 1_000_000);
+                    logger.debug("Extracted total revenue: {} (raw: '{}') from row: {}", value, cellValue, firstCell);
+                }
+            }
+            // Other revenue (includes ancillary, loyalty, etc.) - AFTER total check
             else if ((firstCell.contains("other") || firstCell.contains("ancillary") ||
                       firstCell.contains("loyalty") || firstCell.contains("mileageplus")) &&
                      (firstCell.contains("revenue") || firstCell.contains("operating")) &&
-                     !firstCell.contains("per")) {
+                     !firstCell.contains("per") && !firstCell.contains("total")) {
                 double value = extractNumber(cellValue);
                 if (value > 0) {
                     statement.setOtherOperatingRevenue(value * 1_000_000);
                     logger.debug("Extracted other revenue: {} (raw: '{}') from row: {}", value, cellValue, firstCell);
-                }
-            }
-            // Total operating revenue
-            else if ((firstCell.contains("total") || firstCell.contains("operating revenue") ||
-                      firstCell.contains("operating revenues") || firstCell.equals("total revenue")) &&
-                     !firstCell.contains("per") && !firstCell.contains("excluding")) {
-                // Make sure it looks like a total revenue line
-                if (firstCell.contains("total operating revenue") || firstCell.contains("total operating revenues") ||
-                    firstCell.contains("operating revenue") || firstCell.equals("total revenue")) {
-                    double value = extractNumber(cellValue);
-                    if (value > 0) {
-                        statement.setTotalOperatingRevenue(value * 1_000_000);
-                        logger.debug("Extracted total revenue: {} (raw: '{}') from row: {}", value, cellValue, firstCell);
-                    }
                 }
             }
         }
@@ -358,7 +363,7 @@ public class AirlineHTMLParser {
 
         // Determine year column once for entire table
         int yearColumnIndex = findYearColumnForTable(table, fiscalYear);
-        logger.debug("Using column {} for year {}", yearColumnIndex, fiscalYear);
+        logger.info("Operating stats table: Using column {} for year {}", yearColumnIndex, fiscalYear);
 
         for (Element row : rows) {
             Elements cells = row.select("td, th");
@@ -370,6 +375,9 @@ public class AirlineHTMLParser {
             if (firstCell.isEmpty() || cells.size() <= yearColumnIndex) continue;
 
             String cellValue = cells.get(yearColumnIndex).text();
+
+            // Log every row we're examining for operating stats
+            logger.trace("Examining operating stats row: '{}' with value: '{}'", firstCell, cellValue);
 
             // Extract various operating metrics with more flexible matching
             // Available Seat Miles (ASM)
