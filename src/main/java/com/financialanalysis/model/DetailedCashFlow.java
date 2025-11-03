@@ -206,6 +206,9 @@ public class DetailedCashFlow {
 
     // Helper methods
     public void calculateFreeCashFlow() {
-        this.freeCashFlow = netCashFromOperating - capitalExpenditures;
+        // CapEx should be stored as positive (use of cash), so we subtract it
+        // If it's stored as negative, take absolute value before subtracting
+        double capexAbsolute = Math.abs(capitalExpenditures);
+        this.freeCashFlow = netCashFromOperating - capexAbsolute;
     }
 }

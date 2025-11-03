@@ -1376,12 +1376,24 @@ public class CLI implements Callable<Integer> {
                 stmt -> stmt.getAircraftFuel());
         printComparisonLine("Salaries & Benefits", companies, yearsToShow,
                 stmt -> stmt.getSalariesAndRelatedCosts());
+        printComparisonLine("Regional Capacity Purchase", companies, yearsToShow,
+                stmt -> stmt.getRegionalCapacityPurchase());
+        printComparisonLine("Landing Fees & Rent", companies, yearsToShow,
+                stmt -> stmt.getLandingFeesAndRent());
         printComparisonLine("Aircraft Maintenance", companies, yearsToShow,
                 stmt -> stmt.getAircraftMaintenance());
         printComparisonLine("Depreciation", companies, yearsToShow,
                 stmt -> stmt.getDepreciation());
+        printComparisonLine("Amortization", companies, yearsToShow,
+                stmt -> stmt.getAmortization());
         printComparisonLine("Aircraft Rent", companies, yearsToShow,
                 stmt -> stmt.getAircraftRent());
+        printComparisonLine("Distribution Expenses", companies, yearsToShow,
+                stmt -> stmt.getDistributionExpenses());
+        printComparisonLine("Special Charges", companies, yearsToShow,
+                stmt -> stmt.getSpecialCharges());
+        printComparisonLine("Other Operating Expenses", companies, yearsToShow,
+                stmt -> stmt.getOtherOperatingExpenses());
         printComparisonLine("Total Operating Expenses", companies, yearsToShow,
                 stmt -> stmt.getTotalOperatingExpenses());
 
@@ -1393,6 +1405,10 @@ public class CLI implements Callable<Integer> {
                 stmt -> stmt.getEbit());
         printComparisonLine("EBITDA", companies, yearsToShow,
                 stmt -> stmt.getEbitda());
+        printComparisonLine("Interest Expense", companies, yearsToShow,
+                stmt -> stmt.getInterestExpense());
+        printComparisonLine("Income Tax Expense", companies, yearsToShow,
+                stmt -> stmt.getIncomeTaxExpense());
         printComparisonLine("Net Income", companies, yearsToShow,
                 stmt -> stmt.getNetIncome());
         System.out.println("─".repeat(160));
