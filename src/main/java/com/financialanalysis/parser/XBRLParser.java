@@ -342,6 +342,167 @@ public class XBRLParser {
     }
 
     /**
+     * Finds all context IDs that match the given fiscal year for consolidated data
+     * Inline XBRL files contain multiple years, each with different contexts
+     */
+    private Set<String> findContextsForYear(Element root, int fiscalYear) {
+        Set<String> contexts = new HashSet<>();
+        String yearStr = String.valueOf(fiscalYear);
+
+        // Find the xbrli namespace
+        Namespace xbrliNs = root.getNamespace("xbrli");
+        if (xbrliNs == null) {
+            // Try without namespace prefix
+            List<Element> contextElements = root.getDescendants(new org.jdom2.filter.ElementFilter("context")).toList();
+            for (Element ctx : contextElements) {
+                String contextId = ctx.getAttributeValue("id");
+                if (contextId != null && isContextForYear(ctx, fiscalYear)) {
+                    contexts.add(contextId);
+                }
+            }
+        } else {
+            List<Element> contextElements = root.getDescendants(new org.jdom2.filter.ElementFilter("context", xbrliNs)).toList();
+            for (Element ctx : contextElements) {
+                String contextId = ctx.getAttributeValue("id");
+                if (contextId != null && isContextForYear(ctx, fiscalYear)) {
+                    contexts.add(contextId);
+                }
+            }
+        }
+
+        logger.debug("Found {} contexts for year {}: {}", contexts.size(), fiscalYear, contexts);
+        return contexts;
+    }
+
+    /**
+     * Checks if a context element is for the given fiscal year
+     */
+    private boolean isContextForYear(Element contextElement, int fiscalYear) {
+        String yearStr = String.valueOf(fiscalYear);
+
+        // Look for period with matching year
+        Element period = contextElement.getChild("period", contextElement.getNamespace());
+        if (period != null) {
+            Element startDate = period.getChild("startDate", period.getNamespace());
+            Element endDate = period.getChild("endDate", period.getNamespace());
+            Element instant = period.getChild("instant", period.getNamespace());
+
+            if (endDate != null && endDate.getText().contains(yearStr)) {
+                // Check it's an annual period (starts with year-01-01)
+                if (startDate != null && startDate.getText().contains(yearStr + "-01-01")) {
+                    return true;
+                }
+            }
+
+            if (instant != null && instant.getText().contains(yearStr + "-12-31")) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Extracts value from inline XBRL format (ix:nonFraction elements) with context filtering
+     * Inline XBRL files use contextRef attributes to differentiate between years
+     */
+    private double extractValueFromInlineXBRL(Element root, Set<String> validContexts, Namespace ns, Namespace companyNs, String... tagNames) {
+        // Find ix namespace
+        Namespace ixNs = root.getNamespace("ix");
+        if (ixNs == null) {
+            // Try finding it in document
+            for (Namespace declaredNs : root.getAdditionalNamespaces()) {
+                if (declaredNs.getPrefix().equals("ix")) {
+                    ixNs = declaredNs;
+                    break;
+                }
+            }
+        }
+
+        if (ixNs == null || validContexts.isEmpty()) {
+            logger.debug("No ix namespace or valid contexts found for inline XBRL extraction");
+            return 0;
+        }
+
+        // Search for ix:nonFraction elements
+        List<Element> nonFractionElements = root.getDescendants(new org.jdom2.filter.ElementFilter("nonFraction", ixNs)).toList();
+
+        for (String tagName : tagNames) {
+            // Try both us-gaap and company namespace
+            String[] possibleNames = {
+                "us-gaap:" + tagName,
+                ns != null ? ns.getPrefix() + ":" + tagName : null,
+                companyNs != null ? companyNs.getPrefix() + ":" + tagName : null
+            };
+
+            for (Element elem : nonFractionElements) {
+                String nameAttr = elem.getAttributeValue("name");
+                String contextRef = elem.getAttributeValue("contextRef");
+
+                if (nameAttr != null && contextRef != null && validContexts.contains(contextRef)) {
+                    for (String possibleName : possibleNames) {
+                        if (possibleName != null && nameAttr.equals(possibleName)) {
+                            try {
+                                String text = elem.getText().trim().replace(",", "").replace("−", "-");
+                                double value = Double.parseDouble(text);
+
+                                // Handle scale attribute (scale="6" means multiply by 10^6)
+                                String scaleAttr = elem.getAttributeValue("scale");
+                                if (scaleAttr != null) {
+                                    int scale = Integer.parseInt(scaleAttr);
+                                    value = value * Math.pow(10, scale);
+                                }
+
+                                logger.debug("Extracted {} = {} from inline XBRL (context: {})", nameAttr, value, contextRef);
+                                return value;
+                            } catch (NumberFormatException e) {
+                                logger.debug("Could not parse value for {}: {}", nameAttr, e.getMessage());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return 0;
+    }
+
+    /**
+     * Extracts value from inline XBRL with segment filtering
+     * Used for extracting revenue breakdown by product/service type
+     */
+    private double extractValueFromInlineXBRLWithSegment(Element root, int fiscalYear, String segmentMember, Namespace ns, Namespace companyNs, String... tagNames) {
+        // Find contexts that match both the year AND the segment
+        Set<String> validContexts = new HashSet<>();
+        String yearStr = String.valueOf(fiscalYear);
+
+        Namespace xbrliNs = root.getNamespace("xbrli");
+        if (xbrliNs != null) {
+            List<Element> contextElements = root.getDescendants(new org.jdom2.filter.ElementFilter("context", xbrliNs)).toList();
+            for (Element ctx : contextElements) {
+                String contextId = ctx.getAttributeValue("id");
+                if (contextId != null && isContextForYear(ctx, fiscalYear)) {
+                    // Check if this context has the required segment
+                    Element segment = ctx.getDescendants(new org.jdom2.filter.ElementFilter("segment")).next();
+                    if (segment != null) {
+                        Element explicitMember = segment.getChild("explicitMember", segment.getNamespace());
+                        if (explicitMember != null && explicitMember.getText().contains(segmentMember)) {
+                            validContexts.add(contextId);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (validContexts.isEmpty()) {
+            logger.debug("No contexts found for year {} with segment {}", fiscalYear, segmentMember);
+            return 0;
+        }
+
+        return extractValueFromInlineXBRL(root, validContexts, ns, companyNs, tagNames);
+    }
+
+    /**
      * Recursively searches for an element by name
      */
     private Element findElementRecursive(Element parent, String name, Namespace ns) {
@@ -472,47 +633,106 @@ public class XBRLParser {
     private DetailedIncomeStatement parseDetailedIncomeStatement(Element root, Namespace ns, Namespace companyNs, int fiscalYear) {
         DetailedIncomeStatement stmt = new DetailedIncomeStatement(fiscalYear);
 
-        // Revenue breakdown - Try to get total operating revenue first
-        double totalRevenue = extractValue(root, ns, companyNs,
-                "Revenues",  // Prioritize generic Revenues tag first
-                "OperatingRevenue",
-                "OperatingRevenues",
-                "TotalOperatingRevenue",
-                "TotalOperatingRevenues",
-                "RevenueFromContractWithCustomerExcludingAssessedTax",
-                "SalesRevenueNet",
-                "RevenueFromContractWithCustomer"  // Added for completeness
-        );
+        // Detect if this is inline XBRL format (check for ix namespace)
+        boolean isInlineXBRL = root.getNamespace("ix") != null ||
+                               root.getAdditionalNamespaces().stream().anyMatch(n -> "ix".equals(n.getPrefix()));
 
-        double passengerRevenue = extractValue(root, ns, companyNs,
-                "PassengerRevenue",
-                "PassengerRevenues",
-                "PassengerRevenueGross",
-                "TransportationRevenue",
-                "AirTransportationRevenue",
-                "RevenuePassenger",
-                "ScheduledServiceRevenue",
-                "AirlinePassengerRevenue"  // Added for completeness
-        );
+        double totalRevenue, passengerRevenue, cargoRevenue, otherRevenue;
 
-        double cargoRevenue = extractValue(root, ns, companyNs,
-                "CargoRevenue",
-                "CargoRevenues",
-                "FreightRevenue",
-                "CargoAndFreightRevenue",
-                "RevenueCargo",
-                "MailRevenue"
-        );
+        if (isInlineXBRL) {
+            logger.info("Detected inline XBRL format - using context-aware extraction for year {}", fiscalYear);
 
-        // Try to extract "Other Revenue" directly first
-        double otherRevenue = extractValue(root, ns, companyNs,
-                "OtherOperatingIncome",  // Added - UAL uses this tag
-                "OtherOperatingRevenue",
-                "OtherOperatingRevenues",
-                "AncillaryRevenue",
-                "LoyaltyProgramRevenue",
-                "MiscellaneousOperatingRevenue"
-        );
+            // Find contexts for this year (consolidated, no segments)
+            Set<String> consolidatedContexts = findContextsForYear(root, fiscalYear);
+
+            // Extract revenue using inline XBRL method
+            totalRevenue = extractValueFromInlineXBRL(root, consolidatedContexts, ns, companyNs,
+                    "Revenues",
+                    "OperatingRevenue",
+                    "OperatingRevenues",
+                    "TotalOperatingRevenue",
+                    "TotalOperatingRevenues",
+                    "RevenueFromContractWithCustomerExcludingAssessedTax",
+                    "SalesRevenueNet",
+                    "RevenueFromContractWithCustomer"
+            );
+
+            // Extract segment revenue (passenger, cargo, other)
+            passengerRevenue = extractValueFromInlineXBRLWithSegment(root, fiscalYear, "PassengerMember", ns, companyNs,
+                    "PassengerRevenue",
+                    "PassengerRevenues",
+                    "PassengerRevenueGross",
+                    "TransportationRevenue",
+                    "AirTransportationRevenue",
+                    "RevenuePassenger",
+                    "ScheduledServiceRevenue",
+                    "AirlinePassengerRevenue",
+                    "RevenueFromContractWithCustomerExcludingAssessedTax"
+            );
+
+            cargoRevenue = extractValueFromInlineXBRLWithSegment(root, fiscalYear, "CargoAndFreightMember", ns, companyNs,
+                    "CargoRevenue",
+                    "CargoRevenues",
+                    "FreightRevenue",
+                    "CargoAndFreightRevenue",
+                    "RevenueCargo",
+                    "MailRevenue",
+                    "RevenueFromContractWithCustomerExcludingAssessedTax"
+            );
+
+            otherRevenue = extractValueFromInlineXBRLWithSegment(root, fiscalYear, "ProductAndServiceOtherMember", ns, companyNs,
+                    "OtherOperatingIncome",
+                    "OtherOperatingRevenue",
+                    "OtherOperatingRevenues",
+                    "AncillaryRevenue",
+                    "LoyaltyProgramRevenue",
+                    "MiscellaneousOperatingRevenue",
+                    "RevenueFromContractWithCustomerExcludingAssessedTax"
+            );
+        } else {
+            // Traditional XBRL extraction (for standalone XML files)
+            logger.info("Using traditional XBRL extraction for year {}", fiscalYear);
+
+            totalRevenue = extractValue(root, ns, companyNs,
+                    "Revenues",
+                    "OperatingRevenue",
+                    "OperatingRevenues",
+                    "TotalOperatingRevenue",
+                    "TotalOperatingRevenues",
+                    "RevenueFromContractWithCustomerExcludingAssessedTax",
+                    "SalesRevenueNet",
+                    "RevenueFromContractWithCustomer"
+            );
+
+            passengerRevenue = extractValue(root, ns, companyNs,
+                    "PassengerRevenue",
+                    "PassengerRevenues",
+                    "PassengerRevenueGross",
+                    "TransportationRevenue",
+                    "AirTransportationRevenue",
+                    "RevenuePassenger",
+                    "ScheduledServiceRevenue",
+                    "AirlinePassengerRevenue"
+            );
+
+            cargoRevenue = extractValue(root, ns, companyNs,
+                    "CargoRevenue",
+                    "CargoRevenues",
+                    "FreightRevenue",
+                    "CargoAndFreightRevenue",
+                    "RevenueCargo",
+                    "MailRevenue"
+            );
+
+            otherRevenue = extractValue(root, ns, companyNs,
+                    "OtherOperatingIncome",
+                    "OtherOperatingRevenue",
+                    "OtherOperatingRevenues",
+                    "AncillaryRevenue",
+                    "LoyaltyProgramRevenue",
+                    "MiscellaneousOperatingRevenue"
+            );
+        }
 
         // Log extracted values for debugging
         logger.info("Revenue extraction for year {}: Total=${}, Passenger=${}, Cargo=${}, Other=${}",
