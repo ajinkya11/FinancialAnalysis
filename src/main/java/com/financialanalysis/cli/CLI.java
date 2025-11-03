@@ -2,12 +2,14 @@ package com.financialanalysis.cli;
 
 import com.financialanalysis.analyzer.MetricsCalculator;
 import com.financialanalysis.glossary.Glossary;
+import com.financialanalysis.model.AirlineOperatingMetrics;
 import com.financialanalysis.model.Company;
 import com.financialanalysis.model.FinancialMetrics;
 import com.financialanalysis.model.FinancialStatement;
 import com.financialanalysis.model.DetailedIncomeStatement;
 import com.financialanalysis.model.DetailedBalanceSheet;
 import com.financialanalysis.model.DetailedCashFlow;
+import com.financialanalysis.parser.AirlineHTMLParser;
 import com.financialanalysis.parser.FinancialDataExtractor;
 import com.financialanalysis.parser.PDFParser;
 import com.financialanalysis.parser.XBRLParser;
@@ -37,10 +39,14 @@ public class CLI implements Callable<Integer> {
             @Option(names = {"-i", "--industry"}, description = "Industry/sector") String industry,
             @Option(names = {"-f", "--format"}, description = "File format: pdf or xbrl (default: pdf)",
                     defaultValue = "pdf") String format,
-            @Option(names = {"-y", "--year"}, description = "Fiscal year (if single file)") Integer year
+            @Option(names = {"-y", "--year"}, description = "Fiscal year (if single file)") Integer year,
+            @Option(names = {"--html"}, description = "Parse HTML files for supplementary data (airline metrics, revenue breakdown)") boolean parseHTML
     ) {
         System.out.println("Adding company: " + companyName + " (" + ticker + ")");
         System.out.println("Format: " + format.toUpperCase());
+        if (parseHTML) {
+            System.out.println("HTML Parsing: ENABLED (will extract operating metrics and revenue breakdown)");
+        }
 
         try {
             DataStore dataStore = new DataStore();
@@ -54,7 +60,7 @@ public class CLI implements Callable<Integer> {
 
             // Process based on format
             if ("xbrl".equalsIgnoreCase(format)) {
-                return processXBRLFiles(company, dir, ticker, dataStore);
+                return processXBRLFiles(company, dir, ticker, dataStore, parseHTML);
             } else {
                 return processPDFFiles(company, dir, ticker, year, dataStore);
             }
@@ -123,7 +129,7 @@ public class CLI implements Callable<Integer> {
     /**
      * Process XBRL files for a company
      */
-    private int processXBRLFiles(Company company, File dir, String ticker, DataStore dataStore) throws Exception {
+    private int processXBRLFiles(Company company, File dir, String ticker, DataStore dataStore, boolean parseHTML) throws Exception {
         // Filter XBRL files by ticker symbol in filename
         File[] xbrlFiles = dir.listFiles((d, name) ->
             name.toLowerCase().endsWith(".xml") &&
@@ -170,12 +176,90 @@ public class CLI implements Callable<Integer> {
             return 1;
         }
 
+        // Parse HTML files for supplementary data if requested
+        if (parseHTML) {
+            System.out.println("\n--- Parsing HTML files for operating metrics and revenue breakdown ---");
+            parseHTMLSupplementaryData(company, dir, ticker);
+        }
+
         // Save company data
         dataStore.saveCompany(company);
         System.out.println("\n✓ Successfully added company: " + company.getName() + " with " +
                 company.getFinancialStatements().size() + " year(s) of data");
 
         return 0;
+    }
+
+    /**
+     * Parse HTML files for supplementary data not available in XBRL
+     * - Revenue breakdown (Passenger, Cargo, Other)
+     * - Operating statistics (ASMs, RPMs, RASM, CASM, Load Factor)
+     * - Segment information (by geography)
+     */
+    private void parseHTMLSupplementaryData(Company company, File dir, String ticker) {
+        // Filter HTML files by ticker symbol in filename
+        File[] htmlFiles = dir.listFiles((d, name) -> {
+            String lowerName = name.toLowerCase();
+            return (lowerName.endsWith(".htm") || lowerName.endsWith(".html")) &&
+                   lowerName.contains(ticker.toLowerCase());
+        });
+
+        if (htmlFiles == null || htmlFiles.length == 0) {
+            System.err.println("  ⚠ No HTML files found for ticker '" + ticker + "' in directory: " + dir.getPath());
+            System.err.println("  ⚠ HTML files are needed for revenue breakdown and operating metrics");
+            System.err.println("  ⚠ Download HTML filings from SEC EDGAR (e.g., " + ticker.toLowerCase() + "-20241231.htm)");
+            return;
+        }
+
+        System.out.println("  Found " + htmlFiles.length + " HTML file(s) to parse");
+
+        AirlineHTMLParser htmlParser = new AirlineHTMLParser();
+
+        for (File htmlFile : htmlFiles) {
+            System.out.println("  Processing HTML: " + htmlFile.getName());
+
+            try {
+                // Extract fiscal year from filename
+                int fiscalYear = extractYearFromFilename(htmlFile.getName());
+
+                // Find the corresponding DetailedIncomeStatement
+                DetailedIncomeStatement incomeStatement = company.getDetailedIncomeStatements().stream()
+                    .filter(stmt -> stmt.getFiscalYear() == fiscalYear)
+                    .findFirst()
+                    .orElse(null);
+
+                if (incomeStatement == null) {
+                    System.err.println("    ⚠ No matching income statement found for year " + fiscalYear);
+                    continue;
+                }
+
+                // Parse revenue breakdown
+                htmlParser.parseRevenueBreakdown(htmlFile, incomeStatement, fiscalYear);
+
+                if (incomeStatement.getPassengerRevenue() > 0) {
+                    System.out.println("    ✓ Extracted revenue breakdown:");
+                    System.out.println("      - Passenger: $" + String.format("%.0fM", incomeStatement.getPassengerRevenue() / 1_000_000));
+                    System.out.println("      - Cargo: $" + String.format("%.0fM", incomeStatement.getCargoRevenue() / 1_000_000));
+                    System.out.println("      - Other: $" + String.format("%.0fM", incomeStatement.getOtherOperatingRevenue() / 1_000_000));
+                }
+
+                // Parse operating statistics
+                AirlineOperatingMetrics metrics = htmlParser.parseOperatingStatistics(htmlFile, fiscalYear);
+
+                if (metrics.getAvailableSeatMiles() > 0) {
+                    company.addOperatingMetrics(metrics);
+                    System.out.println("    ✓ Extracted operating metrics:");
+                    System.out.println("      - ASMs: " + String.format("%.0fM", metrics.getAvailableSeatMiles() / 1_000_000.0));
+                    System.out.println("      - RPMs: " + String.format("%.0fM", metrics.getRevenuePassengerMiles() / 1_000_000.0));
+                    System.out.println("      - Load Factor: " + String.format("%.1f%%", metrics.getLoadFactor()));
+                    System.out.println("      - RASM: " + String.format("%.2f¢", metrics.getTotalRevenuePerASM()));
+                    System.out.println("      - CASM: " + String.format("%.2f¢", metrics.getOperatingCostPerASM()));
+                }
+
+            } catch (Exception e) {
+                System.err.println("    ✗ Error processing HTML file " + htmlFile.getName() + ": " + e.getMessage());
+            }
+        }
     }
 
     @Command(name = "analyze", description = "Analyze a company's financial metrics")
