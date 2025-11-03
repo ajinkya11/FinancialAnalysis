@@ -18,15 +18,8 @@ import java.util.*;
 public class XBRLParser {
     private static final Logger logger = LoggerFactory.getLogger(XBRLParser.class);
 
-    // Common US-GAAP namespace prefixes used in XBRL files
-    private static final String[] US_GAAP_PREFIXES = {"us-gaap", "dei", "ifrs-full"};
-
     /**
      * Parses an XBRL file and extracts financial data
-     *
-     * @param xbrlFile the XBRL XML file
-     * @return FinancialStatement with extracted data
-     * @throws Exception if parsing fails
      */
     public FinancialStatement parse(File xbrlFile) throws Exception {
         logger.info("Parsing XBRL file: {}", xbrlFile.getName());
@@ -35,11 +28,8 @@ public class XBRLParser {
         Document document = saxBuilder.build(xbrlFile);
         Element rootElement = document.getRootElement();
 
-        // Get all namespaces from the document
-        List<Namespace> namespaces = rootElement.getAdditionalNamespaces();
         Namespace usGaapNs = findNamespace(rootElement, "us-gaap");
 
-        // Extract fiscal year from filename or document
         int fiscalYear = extractFiscalYear(xbrlFile.getName(), rootElement);
         FinancialStatement statement = new FinancialStatement(fiscalYear);
 
@@ -51,7 +41,12 @@ public class XBRLParser {
         extractCashFlowData(statement, rootElement, usGaapNs);
         extractPerShareData(statement, rootElement, usGaapNs);
 
-        logger.info("Successfully parsed XBRL file");
+        // Calculate derived values
+        calculateDerivedValues(statement, rootElement, usGaapNs);
+
+        logger.info("Successfully parsed XBRL file - Revenue: {}, Net Income: {}, Total Assets: {}",
+                statement.getRevenue(), statement.getNetIncome(), statement.getTotalAssets());
+
         return statement;
     }
 
@@ -64,14 +59,16 @@ public class XBRLParser {
                 "Revenues",
                 "RevenueFromContractWithCustomerExcludingAssessedTax",
                 "SalesRevenueNet",
-                "RevenueFromContractWithCustomer"
+                "RevenueFromContractWithCustomer",
+                "RevenueFromContractWithCustomerIncludingAssessedTax"
         ));
 
-        // Cost of Goods Sold
+        // Cost of Goods Sold (may be 0 for service companies like airlines)
         statement.setCostOfGoodsSold(extractValue(root, ns,
                 "CostOfRevenue",
                 "CostOfGoodsAndServicesSold",
-                "CostOfSales"
+                "CostOfSales",
+                "CostOfGoodsSold"
         ));
 
         // Gross Profit
@@ -82,31 +79,30 @@ public class XBRLParser {
         // Operating Income
         statement.setOperatingIncome(extractValue(root, ns,
                 "OperatingIncomeLoss",
-                "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"
+                "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+                "OperatingIncome"
         ));
 
         // Net Income
         statement.setNetIncome(extractValue(root, ns,
                 "NetIncomeLoss",
                 "ProfitLoss",
-                "NetIncomeLossAvailableToCommonStockholdersBasic"
+                "NetIncomeLossAvailableToCommonStockholdersBasic",
+                "NetIncomeLossAttributableToParent"
         ));
 
-        // EBIT
+        // EBIT (Earnings Before Interest and Taxes)
         statement.setEbit(extractValue(root, ns,
-                "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"
-        ));
-
-        // EBITDA (often calculated)
-        statement.setEbitda(extractValue(root, ns,
-                "EarningsBeforeInterestTaxesDepreciationAndAmortization"
+                "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+                "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments"
         ));
 
         // Interest Expense
         statement.setInterestExpense(extractValue(root, ns,
                 "InterestExpense",
                 "InterestExpenseDebt",
-                "InterestIncomeExpenseNet"
+                "InterestPaidNet",
+                "InterestExpenseDebtExcludingAmortization"
         ));
     }
 
@@ -132,12 +128,14 @@ public class XBRLParser {
         statement.setMarketableSecurities(extractValue(root, ns,
                 "MarketableSecurities",
                 "AvailableForSaleSecuritiesCurrent",
-                "ShortTermInvestments"
+                "ShortTermInvestments",
+                "MarketableSecuritiesCurrent"
         ));
 
         statement.setAccountsReceivable(extractValue(root, ns,
                 "AccountsReceivableNetCurrent",
-                "ReceivablesNetCurrent"
+                "ReceivablesNetCurrent",
+                "AccountsReceivableNet"
         ));
 
         statement.setInventory(extractValue(root, ns,
@@ -145,31 +143,38 @@ public class XBRLParser {
                 "Inventory"
         ));
 
-        // Liabilities
+        // Liabilities - FIXED: Removed "LiabilitiesAndStockholdersEquity" which was returning total assets!
         statement.setTotalLiabilities(extractValue(root, ns,
-                "Liabilities",
-                "LiabilitiesAndStockholdersEquity"
+                "Liabilities"
         ));
 
         statement.setCurrentLiabilities(extractValue(root, ns,
                 "LiabilitiesCurrent"
         ));
 
+        // Long-term debt
         statement.setLongTermDebt(extractValue(root, ns,
                 "LongTermDebt",
                 "LongTermDebtNoncurrent",
+                "LongTermDebtAndCapitalLeaseObligations",
                 "DebtLongtermAndShorttermCombinedAmount"
         ));
 
-        statement.setTotalDebt(extractValue(root, ns,
+        // Short-term debt
+        double shortTermDebt = extractValue(root, ns,
                 "DebtCurrent",
-                "ShortTermBorrowings"
-        ) + statement.getLongTermDebt());
+                "ShortTermBorrowings",
+                "ShortTermDebtAndCurrentPortionOfLongTermDebt"
+        );
+
+        // Total debt = short-term + long-term
+        statement.setTotalDebt(shortTermDebt + statement.getLongTermDebt());
 
         // Equity
         statement.setShareholderEquity(extractValue(root, ns,
                 "StockholdersEquity",
-                "Equity"
+                "Equity",
+                "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"
         ));
     }
 
@@ -179,13 +184,20 @@ public class XBRLParser {
     private void extractCashFlowData(FinancialStatement statement, Element root, Namespace ns) {
         statement.setOperatingCashFlow(extractValue(root, ns,
                 "NetCashProvidedByUsedInOperatingActivities",
-                "CashFlowFromOperatingActivities"
+                "CashFlowFromOperatingActivities",
+                "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"
         ));
 
-        statement.setCapitalExpenditures(extractValue(root, ns,
+        // Capital Expenditures - FIXED: Added more tag variations
+        double capex = extractValue(root, ns,
                 "PaymentsToAcquirePropertyPlantAndEquipment",
-                "CapitalExpenditures"
-        ));
+                "CapitalExpendituresIncurredButNotYetPaid",
+                "PaymentsForCapitalImprovements",
+                "PaymentsToAcquireProductiveAssets"
+        );
+
+        // CapEx is usually negative in cash flow statement
+        statement.setCapitalExpenditures(-Math.abs(capex));
 
         // Calculate free cash flow
         double fcf = statement.getOperatingCashFlow() - Math.abs(statement.getCapitalExpenditures());
@@ -193,12 +205,14 @@ public class XBRLParser {
 
         statement.setDividendsPaid(extractValue(root, ns,
                 "PaymentsOfDividends",
-                "DividendsPaid"
+                "DividendsPaid",
+                "PaymentsOfDividendsCommonStock"
         ));
 
         statement.setShareRepurchases(extractValue(root, ns,
                 "PaymentsForRepurchaseOfCommonStock",
-                "StockRepurchasedDuringPeriodValue"
+                "StockRepurchasedDuringPeriodValue",
+                "PaymentsForRepurchaseOfEquity"
         ));
     }
 
@@ -216,7 +230,8 @@ public class XBRLParser {
 
         long shares = (long) extractValue(root, ns,
                 "CommonStockSharesOutstanding",
-                "WeightedAverageNumberOfSharesOutstandingBasic"
+                "WeightedAverageNumberOfSharesOutstandingBasic",
+                "CommonStockSharesIssued"
         );
         statement.setSharesOutstanding(shares);
 
@@ -227,17 +242,61 @@ public class XBRLParser {
     }
 
     /**
+     * Calculates derived values not directly in XBRL
+     */
+    private void calculateDerivedValues(FinancialStatement statement, Element root, Namespace ns) {
+        // Calculate gross profit if not found (Revenue - COGS)
+        if (statement.getGrossProfit() == 0 && statement.getRevenue() > 0 && statement.getCostOfGoodsSold() > 0) {
+            statement.setGrossProfit(statement.getRevenue() - statement.getCostOfGoodsSold());
+        }
+
+        // Extract Depreciation and Amortization
+        double depreciation = extractValue(root, ns,
+                "DepreciationDepletionAndAmortization",
+                "Depreciation",
+                "DepreciationAndAmortization"
+        );
+
+        // Calculate EBITDA if not found
+        // EBITDA = EBIT + Depreciation + Amortization
+        // OR EBITDA = Net Income + Interest + Taxes + Depreciation + Amortization
+        if (statement.getEbitda() == 0) {
+            if (statement.getEbit() != 0 && depreciation > 0) {
+                statement.setEbitda(statement.getEbit() + depreciation);
+            } else if (statement.getOperatingIncome() > 0 && depreciation > 0) {
+                // Approximate: Operating Income + D&A
+                statement.setEbitda(statement.getOperatingIncome() + depreciation);
+            }
+        }
+
+        // Validate and fix total liabilities if it equals total assets (accounting equation check)
+        if (statement.getTotalLiabilities() > 0 && statement.getTotalAssets() > 0 &&
+            statement.getShareholderEquity() > 0) {
+
+            // Check if liabilities was incorrectly set to total assets
+            if (Math.abs(statement.getTotalLiabilities() - statement.getTotalAssets()) < 1000) {
+                // Calculate correct liabilities: Assets = Liabilities + Equity
+                double correctLiabilities = statement.getTotalAssets() - statement.getShareholderEquity();
+                logger.warn("Correcting total liabilities from {} to {} using accounting equation",
+                        statement.getTotalLiabilities(), correctLiabilities);
+                statement.setTotalLiabilities(correctLiabilities);
+            }
+        }
+
+        // If EBIT is 0 but we have Net Income and Interest, approximate it
+        if (statement.getEbit() == 0 && statement.getNetIncome() != 0) {
+            // EBIT ≈ Net Income + Interest + Taxes
+            // We don't have taxes directly, so use Net Income + Interest as approximation
+            statement.setEbit(statement.getNetIncome() + statement.getInterestExpense());
+        }
+    }
+
+    /**
      * Extracts a numeric value from XBRL using multiple possible tag names
-     *
-     * @param root the root element
-     * @param ns the namespace
-     * @param tagNames possible tag names to search for
-     * @return the extracted value, or 0 if not found
      */
     private double extractValue(Element root, Namespace ns, String... tagNames) {
         for (String tagName : tagNames) {
             try {
-                // Try to find the element with the given tag name
                 Element element = findElementRecursive(root, tagName, ns);
                 if (element != null && element.getText() != null && !element.getText().trim().isEmpty()) {
                     String text = element.getText().trim();

@@ -197,24 +197,32 @@ public class CLI implements Callable<Integer> {
             }
             System.out.println();
 
-            // Display profitability metrics
+            // Display comprehensive metrics
             printProfitabilityMetrics(metricsList);
             System.out.println();
 
-            // Display efficiency metrics
-            printEfficiencyMetrics(metricsList);
+            printReturnMetrics(metricsList);
             System.out.println();
 
-            // Display liquidity metrics
+            printGrowthMetrics(metricsList);
+            System.out.println();
+
             printLiquidityMetrics(metricsList);
             System.out.println();
 
-            // Display leverage metrics
+            printWorkingCapitalMetrics(metricsList);
+            System.out.println();
+
             printLeverageMetrics(metricsList);
             System.out.println();
 
-            // Display cash flow metrics
+            printEfficiencyMetrics(metricsList);
+            System.out.println();
+
             printCashFlowMetrics(metricsList);
+            System.out.println();
+
+            printCashFlowQualityMetrics(metricsList);
 
             return 0;
         } catch (Exception e) {
@@ -312,18 +320,19 @@ public class CLI implements Callable<Integer> {
         }
     }
 
-    // Helper methods for printing tables
+    // Helper methods for printing comprehensive tables
+
     private void printProfitabilityMetrics(List<FinancialMetrics> metricsList) {
-        System.out.println("PROFITABILITY METRICS");
-        System.out.println("─".repeat(80));
-        System.out.println(String.format("%-6s %12s %12s %12s %12s %12s",
-                "Year", "Rev Growth", "Gross Mgn", "Op Margin", "Net Margin", "EBITDA Mgn"));
-        System.out.println("─".repeat(80));
+        System.out.println("═".repeat(100));
+        System.out.println("PROFITABILITY METRICS - Margins");
+        System.out.println("═".repeat(100));
+        System.out.println(String.format("%-8s %14s %14s %14s %14s",
+                "Year", "Gross Margin", "Op Margin", "Net Margin", "EBITDA Margin"));
+        System.out.println("─".repeat(100));
 
         for (FinancialMetrics metrics : metricsList) {
-            System.out.println(String.format("%-6d %12s %12s %12s %12s %12s",
+            System.out.println(String.format("%-8d %14s %14s %14s %14s",
                     metrics.getFiscalYear(),
-                    MetricsCalculator.formatPercentage(metrics.getRevenueGrowthRate()),
                     MetricsCalculator.formatPercentage(metrics.getGrossMargin()),
                     MetricsCalculator.formatPercentage(metrics.getOperatingMargin()),
                     MetricsCalculator.formatPercentage(metrics.getNetMargin()),
@@ -331,65 +340,150 @@ public class CLI implements Callable<Integer> {
         }
     }
 
-    private void printEfficiencyMetrics(List<FinancialMetrics> metricsList) {
-        System.out.println("EFFICIENCY METRICS");
-        System.out.println("─".repeat(80));
-        System.out.println(String.format("%-6s %15s %15s %15s",
-                "Year", "ROA", "ROE", "Asset Turnover"));
-        System.out.println("─".repeat(80));
+    private void printReturnMetrics(List<FinancialMetrics> metricsList) {
+        System.out.println("═".repeat(100));
+        System.out.println("PROFITABILITY METRICS - Returns on Capital");
+        System.out.println("═".repeat(100));
+        System.out.println(String.format("%-8s %14s %14s %14s %14s",
+                "Year", "ROA", "ROE", "ROIC", "ROCE"));
+        System.out.println("─".repeat(100));
 
         for (FinancialMetrics metrics : metricsList) {
-            System.out.println(String.format("%-6d %15s %15s %15s",
+            System.out.println(String.format("%-8d %14s %14s %14s %14s",
                     metrics.getFiscalYear(),
                     MetricsCalculator.formatPercentage(metrics.getReturnOnAssets()),
                     MetricsCalculator.formatPercentage(metrics.getReturnOnEquity()),
-                    MetricsCalculator.formatRatio(metrics.getAssetTurnover())));
+                    MetricsCalculator.formatPercentage(metrics.getReturnOnInvestedCapital()),
+                    MetricsCalculator.formatPercentage(metrics.getReturnOnCapitalEmployed())));
+        }
+    }
+
+    private void printGrowthMetrics(List<FinancialMetrics> metricsList) {
+        System.out.println("═".repeat(120));
+        System.out.println("GROWTH METRICS - Year-over-Year Growth");
+        System.out.println("═".repeat(120));
+        System.out.println(String.format("%-8s %14s %14s %14s %14s %14s %14s",
+                "Year", "Revenue", "OpIncome", "NetIncome", "EBITDA", "EPS", "FCF"));
+        System.out.println("─".repeat(120));
+
+        for (FinancialMetrics metrics : metricsList) {
+            System.out.println(String.format("%-8d %14s %14s %14s %14s %14s %14s",
+                    metrics.getFiscalYear(),
+                    MetricsCalculator.formatPercentage(metrics.getRevenueGrowthRate()),
+                    MetricsCalculator.formatPercentage(metrics.getOperatingIncomeGrowthRate()),
+                    MetricsCalculator.formatPercentage(metrics.getNetIncomeGrowthRate()),
+                    MetricsCalculator.formatPercentage(metrics.getEbitdaGrowthRate()),
+                    MetricsCalculator.formatPercentage(metrics.getEpsGrowthRate()),
+                    MetricsCalculator.formatPercentage(metrics.getFreeCashFlowGrowthRate())));
         }
     }
 
     private void printLiquidityMetrics(List<FinancialMetrics> metricsList) {
+        System.out.println("═".repeat(100));
         System.out.println("LIQUIDITY METRICS");
-        System.out.println("─".repeat(80));
-        System.out.println(String.format("%-6s %20s %20s",
-                "Year", "Current Ratio", "Quick Ratio"));
-        System.out.println("─".repeat(80));
+        System.out.println("═".repeat(100));
+        System.out.println(String.format("%-8s %16s %16s %16s %16s",
+                "Year", "Current Ratio", "Quick Ratio", "Cash Ratio", "OCF Ratio"));
+        System.out.println("─".repeat(100));
 
         for (FinancialMetrics metrics : metricsList) {
-            System.out.println(String.format("%-6d %20s %20s",
+            System.out.println(String.format("%-8d %16s %16s %16s %16s",
                     metrics.getFiscalYear(),
                     MetricsCalculator.formatRatio(metrics.getCurrentRatio()),
-                    MetricsCalculator.formatRatio(metrics.getQuickRatio())));
+                    MetricsCalculator.formatRatio(metrics.getQuickRatio()),
+                    MetricsCalculator.formatRatio(metrics.getCashRatio()),
+                    MetricsCalculator.formatRatio(metrics.getOperatingCashFlowRatio())));
+        }
+    }
+
+    private void printWorkingCapitalMetrics(List<FinancialMetrics> metricsList) {
+        System.out.println("═".repeat(100));
+        System.out.println("WORKING CAPITAL CYCLE - (Lower is Better)");
+        System.out.println("═".repeat(100));
+        System.out.println(String.format("%-8s %20s %20s %20s %20s",
+                "Year", "DSO", "DIO", "DPO", "Cash Conv Cycle"));
+        System.out.println("─".repeat(100));
+
+        for (FinancialMetrics metrics : metricsList) {
+            System.out.println(String.format("%-8d %20s %20s %20s %20s",
+                    metrics.getFiscalYear(),
+                    MetricsCalculator.formatDays(metrics.getDaysSalesOutstanding()),
+                    MetricsCalculator.formatDays(metrics.getDaysInventoryOutstanding()),
+                    MetricsCalculator.formatDays(metrics.getDaysPayableOutstanding()),
+                    MetricsCalculator.formatDays(metrics.getCashConversionCycle())));
         }
     }
 
     private void printLeverageMetrics(List<FinancialMetrics> metricsList) {
-        System.out.println("LEVERAGE/SOLVENCY METRICS");
-        System.out.println("─".repeat(80));
-        System.out.println(String.format("%-6s %15s %15s %20s",
-                "Year", "Debt/Equity", "Debt/Assets", "Interest Coverage"));
-        System.out.println("─".repeat(80));
+        System.out.println("═".repeat(100));
+        System.out.println("LEVERAGE & SOLVENCY METRICS");
+        System.out.println("═".repeat(100));
+        System.out.println(String.format("%-8s %14s %14s %18s %18s",
+                "Year", "Debt/Equity", "Debt/Assets", "Interest Cov", "EBITDA Cov"));
+        System.out.println("─".repeat(100));
 
         for (FinancialMetrics metrics : metricsList) {
-            System.out.println(String.format("%-6d %15s %15s %20s",
+            System.out.println(String.format("%-8d %14s %14s %18s %18s",
                     metrics.getFiscalYear(),
                     MetricsCalculator.formatRatio(metrics.getDebtToEquity()),
                     MetricsCalculator.formatRatio(metrics.getDebtToAssets()),
-                    MetricsCalculator.formatRatio(metrics.getInterestCoverage())));
+                    MetricsCalculator.formatRatio(metrics.getInterestCoverage()),
+                    MetricsCalculator.formatRatio(metrics.getEbitdaCoverage())));
+        }
+    }
+
+    private void printEfficiencyMetrics(List<FinancialMetrics> metricsList) {
+        System.out.println("═".repeat(110));
+        System.out.println("EFFICIENCY METRICS - Asset Turnover");
+        System.out.println("═".repeat(110));
+        System.out.println(String.format("%-8s %16s %16s %16s %16s %16s",
+                "Year", "Asset Turn", "Fixed Asset", "Inventory", "Receivables", "WC Turn"));
+        System.out.println("─".repeat(110));
+
+        for (FinancialMetrics metrics : metricsList) {
+            System.out.println(String.format("%-8d %16s %16s %16s %16s %16s",
+                    metrics.getFiscalYear(),
+                    MetricsCalculator.formatRatio(metrics.getAssetTurnover()),
+                    MetricsCalculator.formatRatio(metrics.getFixedAssetTurnover()),
+                    MetricsCalculator.formatRatio(metrics.getInventoryTurnover()),
+                    MetricsCalculator.formatRatio(metrics.getReceivablesTurnover()),
+                    MetricsCalculator.formatRatio(metrics.getWorkingCapitalTurnover())));
         }
     }
 
     private void printCashFlowMetrics(List<FinancialMetrics> metricsList) {
+        System.out.println("═".repeat(110));
         System.out.println("CASH FLOW METRICS");
-        System.out.println("─".repeat(80));
-        System.out.println(String.format("%-6s %20s %20s",
-                "Year", "FCF Margin", "CapEx/Revenue"));
-        System.out.println("─".repeat(80));
+        System.out.println("═".repeat(110));
+        System.out.println(String.format("%-8s %16s %16s %18s %18s",
+                "Year", "OCF Margin", "FCF Margin", "CapEx/Revenue", "CapEx/OCF"));
+        System.out.println("─".repeat(110));
 
         for (FinancialMetrics metrics : metricsList) {
-            System.out.println(String.format("%-6d %20s %20s",
+            System.out.println(String.format("%-8d %16s %16s %18s %18s",
                     metrics.getFiscalYear(),
+                    MetricsCalculator.formatPercentage(metrics.getOperatingCashFlowMargin()),
                     MetricsCalculator.formatPercentage(metrics.getFreeCashFlowMargin()),
-                    MetricsCalculator.formatPercentage(metrics.getCapexToRevenue())));
+                    MetricsCalculator.formatPercentage(metrics.getCapexToRevenue()),
+                    MetricsCalculator.formatPercentage(metrics.getCapexToOperatingCashFlow())));
+        }
+    }
+
+    private void printCashFlowQualityMetrics(List<FinancialMetrics> metricsList) {
+        System.out.println("═".repeat(100));
+        System.out.println("CASH FLOW QUALITY - Quality of Earnings (Higher is Better)");
+        System.out.println("═".repeat(100));
+        System.out.println(String.format("%-8s %20s %20s %20s %20s",
+                "Year", "OCF/NetIncome", "FCF/NetIncome", "CF-ROA", "CF-ROE"));
+        System.out.println("─".repeat(100));
+
+        for (FinancialMetrics metrics : metricsList) {
+            System.out.println(String.format("%-8d %20s %20s %20s %20s",
+                    metrics.getFiscalYear(),
+                    MetricsCalculator.formatRatio(metrics.getCashFlowToNetIncome()),
+                    MetricsCalculator.formatRatio(metrics.getFreeCashFlowToNetIncome()),
+                    MetricsCalculator.formatPercentage(metrics.getCashFlowReturnOnAssets()),
+                    MetricsCalculator.formatPercentage(metrics.getCashFlowReturnOnEquity())));
         }
     }
 
