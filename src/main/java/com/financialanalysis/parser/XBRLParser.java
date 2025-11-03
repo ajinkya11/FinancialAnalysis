@@ -353,16 +353,18 @@ public class XBRLParser {
         Namespace xbrliNs = root.getNamespace("xbrli");
         if (xbrliNs == null) {
             // Try without namespace prefix
-            List<Element> contextElements = root.getDescendants(new org.jdom2.filter.ElementFilter("context")).toList();
-            for (Element ctx : contextElements) {
+            Iterator<Element> contextIterator = root.getDescendants(new org.jdom2.filter.ElementFilter("context")).iterator();
+            while (contextIterator.hasNext()) {
+                Element ctx = contextIterator.next();
                 String contextId = ctx.getAttributeValue("id");
                 if (contextId != null && isContextForYear(ctx, fiscalYear)) {
                     contexts.add(contextId);
                 }
             }
         } else {
-            List<Element> contextElements = root.getDescendants(new org.jdom2.filter.ElementFilter("context", xbrliNs)).toList();
-            for (Element ctx : contextElements) {
+            Iterator<Element> contextIterator = root.getDescendants(new org.jdom2.filter.ElementFilter("context", xbrliNs)).iterator();
+            while (contextIterator.hasNext()) {
+                Element ctx = contextIterator.next();
                 String contextId = ctx.getAttributeValue("id");
                 if (contextId != null && isContextForYear(ctx, fiscalYear)) {
                     contexts.add(contextId);
@@ -425,7 +427,11 @@ public class XBRLParser {
         }
 
         // Search for ix:nonFraction elements
-        List<Element> nonFractionElements = root.getDescendants(new org.jdom2.filter.ElementFilter("nonFraction", ixNs)).toList();
+        List<Element> nonFractionElements = new ArrayList<>();
+        Iterator<Element> nonFractionIterator = root.getDescendants(new org.jdom2.filter.ElementFilter("nonFraction", ixNs)).iterator();
+        while (nonFractionIterator.hasNext()) {
+            nonFractionElements.add(nonFractionIterator.next());
+        }
 
         for (String tagName : tagNames) {
             // Try both us-gaap and company namespace
@@ -478,8 +484,9 @@ public class XBRLParser {
 
         Namespace xbrliNs = root.getNamespace("xbrli");
         if (xbrliNs != null) {
-            List<Element> contextElements = root.getDescendants(new org.jdom2.filter.ElementFilter("context", xbrliNs)).toList();
-            for (Element ctx : contextElements) {
+            Iterator<Element> contextIterator = root.getDescendants(new org.jdom2.filter.ElementFilter("context", xbrliNs)).iterator();
+            while (contextIterator.hasNext()) {
+                Element ctx = contextIterator.next();
                 String contextId = ctx.getAttributeValue("id");
                 if (contextId != null && isContextForYear(ctx, fiscalYear)) {
                     // Check if this context has the required segment
