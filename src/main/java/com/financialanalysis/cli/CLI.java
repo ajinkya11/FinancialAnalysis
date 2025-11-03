@@ -382,6 +382,9 @@ public class CLI implements Callable<Integer> {
                             m -> MetricsCalculator.formatPercentage(m.getCashFlowReturnOnEquity())
                     });
 
+            // Print detailed financial statements comparison
+            printDetailedStatementsComparison(companies, yearsToCompare);
+
             // Print glossary tip
             System.out.println();
             System.out.println("═".repeat(160));
@@ -1283,6 +1286,267 @@ public class CLI implements Callable<Integer> {
                 System.out.printf("%20s", "-");
             } else {
                 System.out.printf("%,20.2f", value / 1_000_000); // Convert to millions
+            }
+        }
+        System.out.println();
+    }
+
+    private void printDetailedStatementsComparison(List<Company> companies, int yearsToShow) {
+        // Check if any companies have detailed statements
+        boolean hasDetailedData = companies.stream()
+                .anyMatch(c -> !c.getDetailedIncomeStatements().isEmpty());
+
+        if (!hasDetailedData) {
+            System.out.println();
+            System.out.println("═".repeat(160));
+            System.out.println("ℹ INFO: Detailed financial statements not available. Run 'add' command with XBRL files to extract detailed data.");
+            System.out.println("═".repeat(160));
+            return;
+        }
+
+        // Print detailed income statement comparison
+        printDetailedIncomeStatementComparison(companies, yearsToShow);
+
+        // Print detailed balance sheet comparison
+        printDetailedBalanceSheetComparison(companies, yearsToShow);
+
+        // Print detailed cash flow comparison
+        printDetailedCashFlowComparison(companies, yearsToShow);
+    }
+
+    private void printDetailedIncomeStatementComparison(List<Company> companies, int yearsToShow) {
+        System.out.println();
+        System.out.println("═".repeat(160));
+        System.out.println("DETAILED INCOME STATEMENT COMPARISON ($ millions)");
+        System.out.println("═".repeat(160));
+
+        // Print header with company names and years
+        System.out.printf("%-40s", "");
+        for (Company company : companies) {
+            List<DetailedIncomeStatement> stmts = company.getDetailedIncomeStatements();
+            if (stmts.isEmpty()) continue;
+
+            int startIdx = Math.max(0, stmts.size() - yearsToShow);
+            List<DetailedIncomeStatement> recentStmts = stmts.subList(startIdx, stmts.size());
+
+            for (DetailedIncomeStatement stmt : recentStmts) {
+                System.out.printf("%12s", company.getTicker() + " " + stmt.getFiscalYear());
+            }
+        }
+        System.out.println();
+        System.out.println("─".repeat(160));
+
+        // OPERATING REVENUE
+        System.out.println("OPERATING REVENUE");
+        printComparisonLine("Passenger Revenue", companies, yearsToShow,
+                stmt -> stmt.getPassengerRevenue());
+        printComparisonLine("Cargo Revenue", companies, yearsToShow,
+                stmt -> stmt.getCargoRevenue());
+        printComparisonLine("Other Revenue", companies, yearsToShow,
+                stmt -> stmt.getOtherOperatingRevenue());
+        printComparisonLine("Total Operating Revenue", companies, yearsToShow,
+                stmt -> stmt.getTotalOperatingRevenue());
+
+        // OPERATING EXPENSES
+        System.out.println("\nOPERATING EXPENSES");
+        printComparisonLine("Aircraft Fuel", companies, yearsToShow,
+                stmt -> stmt.getAircraftFuel());
+        printComparisonLine("Salaries & Benefits", companies, yearsToShow,
+                stmt -> stmt.getSalariesAndRelatedCosts());
+        printComparisonLine("Aircraft Maintenance", companies, yearsToShow,
+                stmt -> stmt.getAircraftMaintenance());
+        printComparisonLine("Depreciation", companies, yearsToShow,
+                stmt -> stmt.getDepreciation());
+        printComparisonLine("Aircraft Rent", companies, yearsToShow,
+                stmt -> stmt.getAircraftRent());
+        printComparisonLine("Total Operating Expenses", companies, yearsToShow,
+                stmt -> stmt.getTotalOperatingExpenses());
+
+        // PROFITABILITY
+        System.out.println("\nPROFITABILITY");
+        printComparisonLine("Operating Income", companies, yearsToShow,
+                stmt -> stmt.getOperatingIncome());
+        printComparisonLine("EBIT", companies, yearsToShow,
+                stmt -> stmt.getEbit());
+        printComparisonLine("EBITDA", companies, yearsToShow,
+                stmt -> stmt.getEbitda());
+        printComparisonLine("Net Income", companies, yearsToShow,
+                stmt -> stmt.getNetIncome());
+        System.out.println("─".repeat(160));
+    }
+
+    private void printDetailedBalanceSheetComparison(List<Company> companies, int yearsToShow) {
+        System.out.println();
+        System.out.println("═".repeat(160));
+        System.out.println("DETAILED BALANCE SHEET COMPARISON ($ millions)");
+        System.out.println("═".repeat(160));
+
+        // Print header
+        System.out.printf("%-40s", "");
+        for (Company company : companies) {
+            List<DetailedBalanceSheet> sheets = company.getDetailedBalanceSheets();
+            if (sheets.isEmpty()) continue;
+
+            int startIdx = Math.max(0, sheets.size() - yearsToShow);
+            List<DetailedBalanceSheet> recentSheets = sheets.subList(startIdx, sheets.size());
+
+            for (DetailedBalanceSheet sheet : recentSheets) {
+                System.out.printf("%12s", company.getTicker() + " " + sheet.getFiscalYear());
+            }
+        }
+        System.out.println();
+        System.out.println("─".repeat(160));
+
+        // ASSETS
+        System.out.println("ASSETS");
+        printBalanceSheetComparisonLine("Cash & Equivalents", companies, yearsToShow,
+                bs -> bs.getCashAndCashEquivalents());
+        printBalanceSheetComparisonLine("Total Current Assets", companies, yearsToShow,
+                bs -> bs.getTotalCurrentAssets());
+        printBalanceSheetComparisonLine("Flight Equipment", companies, yearsToShow,
+                bs -> bs.getFlightEquipment());
+        printBalanceSheetComparisonLine("Operating Lease ROU Assets", companies, yearsToShow,
+                bs -> bs.getOperatingLeaseRightOfUseAssets());
+        printBalanceSheetComparisonLine("Total Assets", companies, yearsToShow,
+                bs -> bs.getTotalAssets());
+
+        // LIABILITIES
+        System.out.println("\nLIABILITIES");
+        printBalanceSheetComparisonLine("Air Traffic Liability", companies, yearsToShow,
+                bs -> bs.getAirTrafficLiability());
+        printBalanceSheetComparisonLine("Total Current Liabilities", companies, yearsToShow,
+                bs -> bs.getTotalCurrentLiabilities());
+        printBalanceSheetComparisonLine("Long-Term Debt", companies, yearsToShow,
+                bs -> bs.getLongTermDebt());
+        printBalanceSheetComparisonLine("Total Liabilities", companies, yearsToShow,
+                bs -> bs.getTotalLiabilities());
+
+        // EQUITY
+        System.out.println("\nSTOCKHOLDERS' EQUITY");
+        printBalanceSheetComparisonLine("Total Equity", companies, yearsToShow,
+                bs -> bs.getTotalStockholdersEquity());
+        System.out.println("─".repeat(160));
+    }
+
+    private void printDetailedCashFlowComparison(List<Company> companies, int yearsToShow) {
+        System.out.println();
+        System.out.println("═".repeat(160));
+        System.out.println("DETAILED CASH FLOW COMPARISON ($ millions)");
+        System.out.println("═".repeat(160));
+
+        // Print header
+        System.out.printf("%-40s", "");
+        for (Company company : companies) {
+            List<DetailedCashFlow> flows = company.getDetailedCashFlows();
+            if (flows.isEmpty()) continue;
+
+            int startIdx = Math.max(0, flows.size() - yearsToShow);
+            List<DetailedCashFlow> recentFlows = flows.subList(startIdx, flows.size());
+
+            for (DetailedCashFlow flow : recentFlows) {
+                System.out.printf("%12s", company.getTicker() + " " + flow.getFiscalYear());
+            }
+        }
+        System.out.println();
+        System.out.println("─".repeat(160));
+
+        // OPERATING ACTIVITIES
+        System.out.println("OPERATING ACTIVITIES");
+        printCashFlowComparisonLine("Net Income", companies, yearsToShow,
+                cf -> cf.getNetIncome());
+        printCashFlowComparisonLine("Depreciation & Amortization", companies, yearsToShow,
+                cf -> cf.getDepreciationAndAmortization());
+        printCashFlowComparisonLine("Change in Air Traffic Liability", companies, yearsToShow,
+                cf -> cf.getChangeInAirTrafficLiability());
+        printCashFlowComparisonLine("Net Cash from Operations", companies, yearsToShow,
+                cf -> cf.getNetCashFromOperatingActivities());
+
+        // INVESTING ACTIVITIES
+        System.out.println("\nINVESTING ACTIVITIES");
+        printCashFlowComparisonLine("Capital Expenditures", companies, yearsToShow,
+                cf -> cf.getCapitalExpenditures());
+        printCashFlowComparisonLine("Aircraft Purchases", companies, yearsToShow,
+                cf -> cf.getAircraftPurchases());
+        printCashFlowComparisonLine("Net Cash from Investing", companies, yearsToShow,
+                cf -> cf.getNetCashFromInvestingActivities());
+
+        // FINANCING ACTIVITIES
+        System.out.println("\nFINANCING ACTIVITIES");
+        printCashFlowComparisonLine("Proceeds from Debt", companies, yearsToShow,
+                cf -> cf.getProceedsFromDebt());
+        printCashFlowComparisonLine("Debt Repayments", companies, yearsToShow,
+                cf -> cf.getDebtRepayments());
+        printCashFlowComparisonLine("Net Cash from Financing", companies, yearsToShow,
+                cf -> cf.getNetCashFromFinancingActivities());
+
+        // SUMMARY
+        System.out.println("\nCASH FLOW SUMMARY");
+        printCashFlowComparisonLine("Free Cash Flow", companies, yearsToShow,
+                cf -> cf.getFreeCashFlow());
+        System.out.println("─".repeat(160));
+    }
+
+    private void printComparisonLine(String label, List<Company> companies, int yearsToShow,
+                                     java.util.function.Function<DetailedIncomeStatement, Double> valueExtractor) {
+        System.out.printf("%-40s", label);
+        for (Company company : companies) {
+            List<DetailedIncomeStatement> stmts = company.getDetailedIncomeStatements();
+            if (stmts.isEmpty()) continue;
+
+            int startIdx = Math.max(0, stmts.size() - yearsToShow);
+            List<DetailedIncomeStatement> recentStmts = stmts.subList(startIdx, stmts.size());
+
+            for (DetailedIncomeStatement stmt : recentStmts) {
+                double value = valueExtractor.apply(stmt);
+                if (value == 0) {
+                    System.out.printf("%12s", "-");
+                } else {
+                    System.out.printf("%,12.1f", value / 1_000_000); // Convert to millions
+                }
+            }
+        }
+        System.out.println();
+    }
+
+    private void printBalanceSheetComparisonLine(String label, List<Company> companies, int yearsToShow,
+                                                 java.util.function.Function<DetailedBalanceSheet, Double> valueExtractor) {
+        System.out.printf("%-40s", label);
+        for (Company company : companies) {
+            List<DetailedBalanceSheet> sheets = company.getDetailedBalanceSheets();
+            if (sheets.isEmpty()) continue;
+
+            int startIdx = Math.max(0, sheets.size() - yearsToShow);
+            List<DetailedBalanceSheet> recentSheets = sheets.subList(startIdx, sheets.size());
+
+            for (DetailedBalanceSheet sheet : recentSheets) {
+                double value = valueExtractor.apply(sheet);
+                if (value == 0) {
+                    System.out.printf("%12s", "-");
+                } else {
+                    System.out.printf("%,12.1f", value / 1_000_000); // Convert to millions
+                }
+            }
+        }
+        System.out.println();
+    }
+
+    private void printCashFlowComparisonLine(String label, List<Company> companies, int yearsToShow,
+                                            java.util.function.Function<DetailedCashFlow, Double> valueExtractor) {
+        System.out.printf("%-40s", label);
+        for (Company company : companies) {
+            List<DetailedCashFlow> flows = company.getDetailedCashFlows();
+            if (flows.isEmpty()) continue;
+
+            int startIdx = Math.max(0, flows.size() - yearsToShow);
+            List<DetailedCashFlow> recentFlows = flows.subList(startIdx, flows.size());
+
+            for (DetailedCashFlow flow : recentFlows) {
+                double value = valueExtractor.apply(flow);
+                if (value == 0) {
+                    System.out.printf("%12s", "-");
+                } else {
+                    System.out.printf("%,12.1f", value / 1_000_000); // Convert to millions
+                }
             }
         }
         System.out.println();
