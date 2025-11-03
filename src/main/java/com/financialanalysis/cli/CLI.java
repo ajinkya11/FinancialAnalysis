@@ -131,12 +131,15 @@ public class CLI implements Callable<Integer> {
      */
     private int processXBRLFiles(Company company, File dir, String ticker, DataStore dataStore, boolean parseHTML) throws Exception {
         // Filter XBRL files by ticker symbol in filename
-        File[] xbrlFiles = dir.listFiles((d, name) ->
-            name.toLowerCase().endsWith(".xml") &&
-            name.toLowerCase().contains(ticker.toLowerCase()) &&
-            !name.contains("_cal") && !name.contains("_def") &&
-            !name.contains("_lab") && !name.contains("_pre")
-        );
+        // Include both .xml files (traditional XBRL) and .htm files (inline XBRL)
+        File[] xbrlFiles = dir.listFiles((d, name) -> {
+            String lowerName = name.toLowerCase();
+            boolean isXBRLFile = (lowerName.endsWith(".xml") || lowerName.endsWith(".htm")) &&
+                                 lowerName.contains(ticker.toLowerCase()) &&
+                                 !name.contains("_cal") && !name.contains("_def") &&
+                                 !name.contains("_lab") && !name.contains("_pre");
+            return isXBRLFile;
+        });
 
         if (xbrlFiles == null || xbrlFiles.length == 0) {
             System.err.println("Error: No XBRL files found for ticker '" + ticker + "' in directory: " + dir.getPath());
