@@ -646,9 +646,13 @@ public class XBRLParser {
     private DetailedIncomeStatement parseDetailedIncomeStatement(Element root, Namespace ns, Namespace companyNs, int fiscalYear) {
         DetailedIncomeStatement stmt = new DetailedIncomeStatement(fiscalYear);
 
-        // Detect if this is inline XBRL format (check for ix namespace)
-        Namespace ixNs = root.getNamespace("ix");
+        // Detect if this is inline XBRL format - search for ix: elements
+        Namespace ixNs = null;
+
+        // First try to get the ix namespace from root element
+        ixNs = root.getNamespace("ix");
         if (ixNs == null) {
+            // Check additional namespaces on root
             for (Namespace ns_check : root.getAdditionalNamespaces()) {
                 if ("ix".equals(ns_check.getPrefix())) {
                     ixNs = ns_check;
@@ -656,6 +660,20 @@ public class XBRLParser {
                 }
             }
         }
+
+        // If still not found, search for any element with ix prefix
+        if (ixNs == null) {
+            Iterator<Element> allElements = root.getDescendants(new org.jdom2.filter.ElementFilter()).iterator();
+            while (allElements.hasNext() && ixNs == null) {
+                Element elem = allElements.next();
+                Namespace elemNs = elem.getNamespace();
+                if (elemNs != null && "ix".equals(elemNs.getPrefix())) {
+                    ixNs = elemNs;
+                    break;
+                }
+            }
+        }
+
         boolean isInlineXBRL = ixNs != null;
 
         logger.info("Inline XBRL detection for year {}: ix namespace {}", fiscalYear, isInlineXBRL ? "FOUND" : "NOT FOUND");
