@@ -247,6 +247,20 @@ public class CLI implements Callable<Integer> {
                 AirlineOperatingMetrics metrics = htmlParser.parseOperatingStatistics(htmlFile, fiscalYear);
 
                 if (metrics.getAvailableSeatMiles() > 0) {
+                    // Calculate RASM/CASM if not directly extracted from HTML
+                    // Find corresponding balance sheet and cash flow for complete calculation
+                    DetailedBalanceSheet balanceSheet = company.getDetailedBalanceSheets().stream()
+                        .filter(bs -> bs.getFiscalYear() == fiscalYear)
+                        .findFirst()
+                        .orElse(null);
+
+                    DetailedCashFlow cashFlow = company.getDetailedCashFlows().stream()
+                        .filter(cf -> cf.getFiscalYear() == fiscalYear)
+                        .findFirst()
+                        .orElse(null);
+
+                    htmlParser.calculateUnitMetrics(metrics, incomeStatement, balanceSheet, cashFlow);
+
                     company.addOperatingMetrics(metrics);
                     System.out.println("    ✓ Extracted operating metrics:");
                     System.out.println("      - ASMs: " + String.format("%.0fM", metrics.getAvailableSeatMiles() / 1_000_000.0));
