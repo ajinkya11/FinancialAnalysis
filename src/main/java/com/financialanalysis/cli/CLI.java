@@ -144,11 +144,18 @@ public class CLI implements Callable<Integer> {
             System.out.println("Processing: " + xbrlFile.getName());
 
             try {
-                // Parse XBRL file
+                // Parse XBRL file - basic extraction (for backward compatibility)
                 FinancialStatement statement = xbrlParser.parse(xbrlFile);
                 company.addFinancialStatement(statement);
 
+                // Parse detailed financial statements (new comprehensive extraction)
+                XBRLParser.DetailedFinancialData detailedData = xbrlParser.parseDetailed(xbrlFile);
+                company.addDetailedIncomeStatement(detailedData.getIncomeStatement());
+                company.addDetailedBalanceSheet(detailedData.getBalanceSheet());
+                company.addDetailedCashFlow(detailedData.getCashFlow());
+
                 System.out.println("  ✓ Extracted data for fiscal year " + statement.getFiscalYear());
+                System.out.println("  ✓ Extracted detailed financial statements");
             } catch (Exception e) {
                 System.err.println("  ✗ Error processing " + xbrlFile.getName() + ": " + e.getMessage());
                 e.printStackTrace();
@@ -528,6 +535,105 @@ public class CLI implements Callable<Integer> {
         }
     }
 
+    @Command(name = "income-statement", description = "Show detailed income statement")
+    public int showIncomeStatement(
+            @Parameters(index = "0", description = "Company ticker symbol") String ticker,
+            @Option(names = {"-y", "--years"}, description = "Number of years to show (default: 3)",
+                    defaultValue = "3") int yearsToShow
+    ) {
+        try {
+            DataStore dataStore = new DataStore();
+            Company company = dataStore.loadCompany(ticker);
+
+            if (company == null) {
+                System.err.println("Error: Company not found: " + ticker);
+                return 1;
+            }
+
+            List<DetailedIncomeStatement> statements = company.getDetailedIncomeStatements();
+            if (statements.isEmpty()) {
+                System.err.println("Error: No detailed income statement data found for " + ticker);
+                System.err.println("Please re-run: finanalysis add with XBRL files to extract detailed data");
+                return 1;
+            }
+
+            // Display income statement
+            printDetailedIncomeStatement(company, statements, yearsToShow);
+
+            return 0;
+        } catch (Exception e) {
+            System.err.println("Error: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
+    @Command(name = "balance-sheet", description = "Show detailed balance sheet")
+    public int showBalanceSheet(
+            @Parameters(index = "0", description = "Company ticker symbol") String ticker,
+            @Option(names = {"-y", "--years"}, description = "Number of years to show (default: 3)",
+                    defaultValue = "3") int yearsToShow
+    ) {
+        try {
+            DataStore dataStore = new DataStore();
+            Company company = dataStore.loadCompany(ticker);
+
+            if (company == null) {
+                System.err.println("Error: Company not found: " + ticker);
+                return 1;
+            }
+
+            List<DetailedBalanceSheet> statements = company.getDetailedBalanceSheets();
+            if (statements.isEmpty()) {
+                System.err.println("Error: No detailed balance sheet data found for " + ticker);
+                System.err.println("Please re-run: finanalysis add with XBRL files to extract detailed data");
+                return 1;
+            }
+
+            // Display balance sheet
+            printDetailedBalanceSheet(company, statements, yearsToShow);
+
+            return 0;
+        } catch (Exception e) {
+            System.err.println("Error: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
+    @Command(name = "cash-flow", description = "Show detailed cash flow statement")
+    public int showCashFlow(
+            @Parameters(index = "0", description = "Company ticker symbol") String ticker,
+            @Option(names = {"-y", "--years"}, description = "Number of years to show (default: 3)",
+                    defaultValue = "3") int yearsToShow
+    ) {
+        try {
+            DataStore dataStore = new DataStore();
+            Company company = dataStore.loadCompany(ticker);
+
+            if (company == null) {
+                System.err.println("Error: Company not found: " + ticker);
+                return 1;
+            }
+
+            List<DetailedCashFlow> statements = company.getDetailedCashFlows();
+            if (statements.isEmpty()) {
+                System.err.println("Error: No detailed cash flow data found for " + ticker);
+                System.err.println("Please re-run: finanalysis add with XBRL files to extract detailed data");
+                return 1;
+            }
+
+            // Display cash flow
+            printDetailedCashFlow(company, statements, yearsToShow);
+
+            return 0;
+        } catch (Exception e) {
+            System.err.println("Error: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
     @Command(name = "glossary", description = "Look up financial metrics and abbreviations")
     public int showGlossary(
             @Parameters(index = "0", description = "Term to look up (optional)", arity = "0..1") String term,
@@ -842,6 +948,341 @@ public class CLI implements Callable<Integer> {
             return str;
         }
         return str.substring(0, maxLength - 3) + "...";
+    }
+
+    // Display methods for detailed financial statements
+
+    private void printDetailedIncomeStatement(Company company, List<DetailedIncomeStatement> statements, int yearsToShow) {
+        System.out.println("═".repeat(140));
+        System.out.println("DETAILED INCOME STATEMENT: " + company.getName() + " (" + company.getTicker() + ")");
+        System.out.println("═".repeat(140));
+        System.out.println();
+
+        // Get recent years
+        int startIdx = Math.max(0, statements.size() - yearsToShow);
+        List<DetailedIncomeStatement> recentStmts = statements.subList(startIdx, statements.size());
+
+        // Revenue Section
+        System.out.println("OPERATING REVENUE");
+        System.out.println("─".repeat(140));
+        System.out.printf("%-40s", "");
+        for (DetailedIncomeStatement stmt : recentStmts) {
+            System.out.printf("%20d", stmt.getFiscalYear());
+        }
+        System.out.println("\n" + "─".repeat(140));
+
+        printIncomeStatementLine("Passenger Revenue", recentStmts,
+                stmt -> stmt.getPassengerRevenue(),
+                stmt -> String.format("%.1f%%", stmt.getPassengerRevenuePercentage()));
+
+        printIncomeStatementLine("Cargo Revenue", recentStmts,
+                stmt -> stmt.getCargoRevenue(),
+                stmt -> String.format("%.1f%%", stmt.getCargoRevenuePercentage()));
+
+        printIncomeStatementLine("Other Operating Revenue", recentStmts,
+                stmt -> stmt.getOtherOperatingRevenue(), null);
+
+        printIncomeStatementLine("Total Operating Revenue", recentStmts,
+                stmt -> stmt.getTotalOperatingRevenue(), null);
+
+        // Operating Expenses Section
+        System.out.println("\nOPERATING EXPENSES");
+        System.out.println("─".repeat(140));
+
+        printIncomeStatementLine("Aircraft Fuel", recentStmts,
+                stmt -> stmt.getAircraftFuel(),
+                stmt -> String.format("%.1f%%", stmt.getFuelAsPercentOfOpex()));
+
+        printIncomeStatementLine("Salaries & Related Costs", recentStmts,
+                stmt -> stmt.getSalariesAndRelatedCosts(),
+                stmt -> String.format("%.1f%% of rev", stmt.getSalariesAsPercentOfRevenue()));
+
+        printIncomeStatementLine("Regional Capacity Purchase", recentStmts,
+                stmt -> stmt.getRegionalCapacityPurchase(), null);
+
+        printIncomeStatementLine("Landing Fees & Rent", recentStmts,
+                stmt -> stmt.getLandingFeesAndRent(), null);
+
+        printIncomeStatementLine("Aircraft Maintenance", recentStmts,
+                stmt -> stmt.getAircraftMaintenance(), null);
+
+        printIncomeStatementLine("Depreciation", recentStmts,
+                stmt -> stmt.getDepreciation(), null);
+
+        printIncomeStatementLine("Amortization", recentStmts,
+                stmt -> stmt.getAmortization(), null);
+
+        printIncomeStatementLine("Aircraft Rent", recentStmts,
+                stmt -> stmt.getAircraftRent(), null);
+
+        printIncomeStatementLine("Other Operating Expenses", recentStmts,
+                stmt -> stmt.getOtherOperatingExpenses(), null);
+
+        printIncomeStatementLine("Total Operating Expenses", recentStmts,
+                stmt -> stmt.getTotalOperatingExpenses(), null);
+
+        // Operating Income
+        System.out.println("\n" + "─".repeat(140));
+        printIncomeStatementLine("Operating Income", recentStmts,
+                stmt -> stmt.getOperatingIncome(), null);
+
+        // Non-Operating
+        System.out.println("\nNON-OPERATING ITEMS");
+        System.out.println("─".repeat(140));
+
+        printIncomeStatementLine("Interest Expense", recentStmts,
+                stmt -> stmt.getInterestExpense(), null);
+
+        printIncomeStatementLine("Interest Income", recentStmts,
+                stmt -> stmt.getInterestIncome(), null);
+
+        printIncomeStatementLine("Other Income/(Expense)", recentStmts,
+                stmt -> stmt.getOtherIncomeExpense(), null);
+
+        // Bottom Line
+        System.out.println("\n" + "─".repeat(140));
+        printIncomeStatementLine("Pre-tax Income", recentStmts,
+                stmt -> stmt.getPretaxIncome(), null);
+
+        printIncomeStatementLine("Income Tax Expense", recentStmts,
+                stmt -> stmt.getIncomeTaxExpense(),
+                stmt -> String.format("%.1f%% rate", stmt.getEffectiveTaxRate()));
+
+        printIncomeStatementLine("Net Income", recentStmts,
+                stmt -> stmt.getNetIncome(), null);
+
+        // Per Share
+        System.out.println("\nPER SHARE DATA");
+        System.out.println("─".repeat(140));
+
+        printIncomeStatementLine("Basic EPS", recentStmts,
+                stmt -> stmt.getBasicEPS(), null);
+
+        printIncomeStatementLine("Diluted EPS", recentStmts,
+                stmt -> stmt.getDilutedEPS(), null);
+
+        System.out.println("\n" + "═".repeat(140));
+        System.out.println("All figures in millions except per-share data");
+        System.out.println("═".repeat(140));
+    }
+
+    private void printIncomeStatementLine(String label, List<DetailedIncomeStatement> statements,
+                                          java.util.function.Function<DetailedIncomeStatement, Double> valueExtractor,
+                                          java.util.function.Function<DetailedIncomeStatement, String> percentExtractor) {
+        System.out.printf("%-40s", label);
+        for (DetailedIncomeStatement stmt : statements) {
+            double value = valueExtractor.apply(stmt);
+            if (value == 0) {
+                System.out.printf("%20s", "-");
+            } else {
+                System.out.printf("%,20.2f", value / 1_000_000); // Convert to millions
+            }
+        }
+        if (percentExtractor != null) {
+            System.out.print("    ");
+            for (DetailedIncomeStatement stmt : statements) {
+                System.out.printf("%-12s", percentExtractor.apply(stmt));
+            }
+        }
+        System.out.println();
+    }
+
+    private void printDetailedBalanceSheet(Company company, List<DetailedBalanceSheet> statements, int yearsToShow) {
+        System.out.println("═".repeat(140));
+        System.out.println("DETAILED BALANCE SHEET: " + company.getName() + " (" + company.getTicker() + ")");
+        System.out.println("═".repeat(140));
+        System.out.println();
+
+        // Get recent years
+        int startIdx = Math.max(0, statements.size() - yearsToShow);
+        List<DetailedBalanceSheet> recentStmts = statements.subList(startIdx, statements.size());
+
+        // Header
+        System.out.printf("%-40s", "");
+        for (DetailedBalanceSheet stmt : recentStmts) {
+            System.out.printf("%20d", stmt.getFiscalYear());
+        }
+        System.out.println("\n" + "─".repeat(140));
+
+        // Current Assets
+        System.out.println("CURRENT ASSETS");
+        System.out.println("─".repeat(140));
+
+        printBalanceSheetLine("Cash & Cash Equivalents", recentStmts, bs -> bs.getCashAndCashEquivalents());
+        printBalanceSheetLine("Short-term Investments", recentStmts, bs -> bs.getShortTermInvestments());
+        printBalanceSheetLine("Restricted Cash", recentStmts, bs -> bs.getRestrictedCash());
+        printBalanceSheetLine("Accounts Receivable", recentStmts, bs -> bs.getAccountsReceivable());
+        printBalanceSheetLine("Prepaid Expenses", recentStmts, bs -> bs.getPrepaidExpenses());
+        printBalanceSheetLine("Spare Parts & Supplies", recentStmts, bs -> bs.getSparePartsAndSupplies());
+        printBalanceSheetLine("Total Current Assets", recentStmts, bs -> bs.getTotalCurrentAssets());
+
+        // PP&E
+        System.out.println("\nPROPERTY, PLANT & EQUIPMENT");
+        System.out.println("─".repeat(140));
+
+        printBalanceSheetLine("Flight Equipment", recentStmts, bs -> bs.getFlightEquipment());
+        printBalanceSheetLine("Ground Equipment", recentStmts, bs -> bs.getGroundEquipment());
+        printBalanceSheetLine("Buildings", recentStmts, bs -> bs.getBuildings());
+        printBalanceSheetLine("Total PP&E at Cost", recentStmts, bs -> bs.getTotalPPEAtCost());
+        printBalanceSheetLine("Less: Accumulated Depreciation", recentStmts, bs -> bs.getAccumulatedDepreciation());
+        printBalanceSheetLine("Net PP&E", recentStmts, bs -> bs.getNetPPE());
+
+        // Other Assets
+        System.out.println("\nOTHER ASSETS");
+        System.out.println("─".repeat(140));
+
+        printBalanceSheetLine("Operating Lease ROU Assets", recentStmts, bs -> bs.getOperatingLeaseRightOfUseAssets());
+        printBalanceSheetLine("Goodwill", recentStmts, bs -> bs.getGoodwill());
+        printBalanceSheetLine("Intangible Assets", recentStmts, bs -> bs.getIntangibleAssets());
+        printBalanceSheetLine("Long-term Investments", recentStmts, bs -> bs.getLongTermInvestments());
+
+        System.out.println("\n" + "─".repeat(140));
+        printBalanceSheetLine("TOTAL ASSETS", recentStmts, bs -> bs.getTotalAssets());
+
+        // Current Liabilities
+        System.out.println("\n\nCURRENT LIABILITIES");
+        System.out.println("─".repeat(140));
+
+        printBalanceSheetLine("Accounts Payable", recentStmts, bs -> bs.getAccountsPayable());
+        printBalanceSheetLine("Accrued Salaries & Benefits", recentStmts, bs -> bs.getAccruedSalariesAndBenefits());
+        printBalanceSheetLine("Air Traffic Liability", recentStmts, bs -> bs.getAirTrafficLiability());
+        printBalanceSheetLine("Current Debt", recentStmts, bs -> bs.getCurrentDebt());
+        printBalanceSheetLine("Current Operating Lease Liab", recentStmts, bs -> bs.getCurrentOperatingLeaseLiabilities());
+        printBalanceSheetLine("Total Current Liabilities", recentStmts, bs -> bs.getTotalCurrentLiabilities());
+
+        // Long-term Liabilities
+        System.out.println("\nLONG-TERM LIABILITIES");
+        System.out.println("─".repeat(140));
+
+        printBalanceSheetLine("Long-term Debt", recentStmts, bs -> bs.getLongTermDebt());
+        printBalanceSheetLine("LT Operating Lease Liabilities", recentStmts, bs -> bs.getLongTermOperatingLeaseLiabilities());
+        printBalanceSheetLine("LT Finance Lease Liabilities", recentStmts, bs -> bs.getLongTermFinanceLeaseLiabilities());
+        printBalanceSheetLine("Pension Liabilities", recentStmts, bs -> bs.getPensionLiabilities());
+        printBalanceSheetLine("Loyalty Program Deferred Rev", recentStmts, bs -> bs.getLoyaltyProgramDeferredRevenue());
+
+        System.out.println("\n" + "─".repeat(140));
+        printBalanceSheetLine("TOTAL LIABILITIES", recentStmts, bs -> bs.getTotalLiabilities());
+
+        // Equity
+        System.out.println("\n\nSTOCKHOLDERS' EQUITY");
+        System.out.println("─".repeat(140));
+
+        printBalanceSheetLine("Common Stock", recentStmts, bs -> bs.getCommonStock());
+        printBalanceSheetLine("Additional Paid-in Capital", recentStmts, bs -> bs.getAdditionalPaidInCapital());
+        printBalanceSheetLine("Retained Earnings", recentStmts, bs -> bs.getRetainedEarnings());
+        printBalanceSheetLine("Accum Other Comprehensive Inc", recentStmts, bs -> bs.getAccumulatedOtherComprehensiveIncome());
+
+        System.out.println("\n" + "─".repeat(140));
+        printBalanceSheetLine("TOTAL EQUITY", recentStmts, bs -> bs.getTotalStockholdersEquity());
+
+        System.out.println("\n" + "═".repeat(140));
+        System.out.println("All figures in millions");
+        System.out.println("═".repeat(140));
+    }
+
+    private void printBalanceSheetLine(String label, List<DetailedBalanceSheet> statements,
+                                       java.util.function.Function<DetailedBalanceSheet, Double> valueExtractor) {
+        System.out.printf("%-40s", label);
+        for (DetailedBalanceSheet stmt : statements) {
+            double value = valueExtractor.apply(stmt);
+            if (value == 0) {
+                System.out.printf("%20s", "-");
+            } else {
+                System.out.printf("%,20.2f", value / 1_000_000); // Convert to millions
+            }
+        }
+        System.out.println();
+    }
+
+    private void printDetailedCashFlow(Company company, List<DetailedCashFlow> statements, int yearsToShow) {
+        System.out.println("═".repeat(140));
+        System.out.println("DETAILED CASH FLOW STATEMENT: " + company.getName() + " (" + company.getTicker() + ")");
+        System.out.println("═".repeat(140));
+        System.out.println();
+
+        // Get recent years
+        int startIdx = Math.max(0, statements.size() - yearsToShow);
+        List<DetailedCashFlow> recentStmts = statements.subList(startIdx, statements.size());
+
+        // Header
+        System.out.printf("%-40s", "");
+        for (DetailedCashFlow stmt : recentStmts) {
+            System.out.printf("%20d", stmt.getFiscalYear());
+        }
+        System.out.println("\n" + "─".repeat(140));
+
+        // Operating Activities
+        System.out.println("OPERATING ACTIVITIES");
+        System.out.println("─".repeat(140));
+
+        printCashFlowLine("Net Income", recentStmts, cf -> cf.getNetIncome());
+        printCashFlowLine("Depreciation", recentStmts, cf -> cf.getDepreciation());
+        printCashFlowLine("Amortization", recentStmts, cf -> cf.getAmortization());
+        printCashFlowLine("Stock-based Compensation", recentStmts, cf -> cf.getStockBasedCompensation());
+        printCashFlowLine("Deferred Income Taxes", recentStmts, cf -> cf.getDeferredIncomeTaxes());
+
+        System.out.println("\nChanges in Working Capital:");
+        printCashFlowLine("  Change in Receivables", recentStmts, cf -> cf.getChangeInReceivables());
+        printCashFlowLine("  Change in Payables", recentStmts, cf -> cf.getChangeInAccountsPayable());
+        printCashFlowLine("  Change in Air Traffic Liab", recentStmts, cf -> cf.getChangeInAirTrafficLiability());
+
+        System.out.println("\n" + "─".repeat(140));
+        printCashFlowLine("Net Cash from Operating", recentStmts, cf -> cf.getNetCashFromOperating());
+
+        // Investing Activities
+        System.out.println("\n\nINVESTING ACTIVITIES");
+        System.out.println("─".repeat(140));
+
+        printCashFlowLine("Capital Expenditures", recentStmts, cf -> cf.getCapitalExpenditures());
+        printCashFlowLine("Aircraft Purchases", recentStmts, cf -> cf.getAircraftPurchases());
+        printCashFlowLine("Pre-delivery Deposits", recentStmts, cf -> cf.getPreDeliveryDeposits());
+        printCashFlowLine("Proceeds from Asset Sales", recentStmts, cf -> cf.getProceedsFromAssetSales());
+        printCashFlowLine("Purchases of Investments", recentStmts, cf -> cf.getPurchasesOfInvestments());
+        printCashFlowLine("Sales of Investments", recentStmts, cf -> cf.getSalesOfInvestments());
+
+        System.out.println("\n" + "─".repeat(140));
+        printCashFlowLine("Net Cash from Investing", recentStmts, cf -> cf.getNetCashFromInvesting());
+
+        // Financing Activities
+        System.out.println("\n\nFINANCING ACTIVITIES");
+        System.out.println("─".repeat(140));
+
+        printCashFlowLine("Proceeds from Debt Issuance", recentStmts, cf -> cf.getProceedsFromDebtIssuance());
+        printCashFlowLine("Debt Repayments", recentStmts, cf -> cf.getDebtRepayments());
+        printCashFlowLine("Proceeds from Sale-Leasebacks", recentStmts, cf -> cf.getProceedsFromSaleLeasebacks());
+        printCashFlowLine("Stock Repurchases", recentStmts, cf -> cf.getStockRepurchases());
+        printCashFlowLine("Dividends Paid", recentStmts, cf -> cf.getDividendsPaid());
+
+        System.out.println("\n" + "─".repeat(140));
+        printCashFlowLine("Net Cash from Financing", recentStmts, cf -> cf.getNetCashFromFinancing());
+
+        // Summary
+        System.out.println("\n\nSUMMARY");
+        System.out.println("─".repeat(140));
+
+        printCashFlowLine("Net Change in Cash", recentStmts, cf -> cf.getNetChangeInCash());
+        printCashFlowLine("Cash at End of Period", recentStmts, cf -> cf.getCashAtEnd());
+
+        System.out.println("\n" + "─".repeat(140));
+        printCashFlowLine("FREE CASH FLOW", recentStmts, cf -> cf.getFreeCashFlow());
+
+        System.out.println("\n" + "═".repeat(140));
+        System.out.println("All figures in millions");
+        System.out.println("═".repeat(140));
+    }
+
+    private void printCashFlowLine(String label, List<DetailedCashFlow> statements,
+                                   java.util.function.Function<DetailedCashFlow, Double> valueExtractor) {
+        System.out.printf("%-40s", label);
+        for (DetailedCashFlow stmt : statements) {
+            double value = valueExtractor.apply(stmt);
+            if (value == 0) {
+                System.out.printf("%20s", "-");
+            } else {
+                System.out.printf("%,20.2f", value / 1_000_000); // Convert to millions
+            }
+        }
+        System.out.println();
     }
 
     @Override
