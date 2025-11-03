@@ -1,6 +1,8 @@
 package com.financialanalysis.parser;
 
 import com.financialanalysis.model.AirlineOperatingMetrics;
+import com.financialanalysis.model.DetailedBalanceSheet;
+import com.financialanalysis.model.DetailedCashFlow;
 import com.financialanalysis.model.DetailedIncomeStatement;
 import com.financialanalysis.model.SegmentInformation;
 import org.jsoup.Jsoup;
@@ -772,19 +774,19 @@ public class AirlineHTMLParser {
             return;
         }
 
-        long asms = metrics.getAvailableSeatMiles();
+        double asms = metrics.getAvailableSeatMiles();
 
         // Calculate RASM if not already set
         if (metrics.getTotalRevenuePerASM() == 0 && incomeStatement != null && incomeStatement.getTotalOperatingRevenue() > 0) {
             // RASM = (Total Revenue / ASMs) * 100 to get cents
-            double rasm = (incomeStatement.getTotalOperatingRevenue() / (double) asms) * 100.0;
+            double rasm = (incomeStatement.getTotalOperatingRevenue() / asms) * 100.0;
             metrics.setTotalRevenuePerASM(rasm);
             logger.info("Calculated RASM: {} cents", String.format("%.2f", rasm));
         }
 
         // Calculate PRASM if not already set
         if (metrics.getPassengerRevenuePerASM() == 0 && incomeStatement != null && incomeStatement.getPassengerRevenue() > 0) {
-            double prasm = (incomeStatement.getPassengerRevenue() / (double) asms) * 100.0;
+            double prasm = (incomeStatement.getPassengerRevenue() / asms) * 100.0;
             metrics.setPassengerRevenuePerASM(prasm);
             logger.info("Calculated PRASM: {} cents", String.format("%.2f", prasm));
         }
@@ -792,15 +794,15 @@ public class AirlineHTMLParser {
         // Calculate CASM if not already set
         if (metrics.getOperatingCostPerASM() == 0 && incomeStatement != null && incomeStatement.getTotalOperatingExpenses() > 0) {
             // CASM = (Total Operating Expenses / ASMs) * 100 to get cents
-            double casm = (incomeStatement.getTotalOperatingExpenses() / (double) asms) * 100.0;
+            double casm = (incomeStatement.getTotalOperatingExpenses() / asms) * 100.0;
             metrics.setOperatingCostPerASM(casm);
             logger.info("Calculated CASM: {} cents", String.format("%.2f", casm));
         }
 
         // Calculate CASM-ex (excluding fuel) if not already set
         if (metrics.getCasmExcludingFuel() == 0 && incomeStatement != null &&
-            incomeStatement.getTotalOperatingExpenses() > 0 && incomeStatement.getFuelExpense() > 0) {
-            double casmEx = ((incomeStatement.getTotalOperatingExpenses() - incomeStatement.getFuelExpense()) / (double) asms) * 100.0;
+            incomeStatement.getTotalOperatingExpenses() > 0 && incomeStatement.getAircraftFuel() > 0) {
+            double casmEx = ((incomeStatement.getTotalOperatingExpenses() - incomeStatement.getAircraftFuel()) / asms) * 100.0;
             metrics.setCasmExcludingFuel(casmEx);
             logger.info("Calculated CASM-ex: {} cents", String.format("%.2f", casmEx));
         }

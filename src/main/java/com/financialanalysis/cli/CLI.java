@@ -1433,6 +1433,9 @@ public class CLI implements Callable<Integer> {
 
         // Print detailed cash flow comparison
         printDetailedCashFlowComparison(companies, yearsToShow);
+
+        // Print operating metrics comparison (for airlines)
+        printOperatingMetricsComparison(companies, yearsToShow);
     }
 
     private void printDetailedIncomeStatementComparison(List<Company> companies, int yearsToShow) {
@@ -1621,6 +1624,136 @@ public class CLI implements Callable<Integer> {
         printCashFlowComparisonLine("Free Cash Flow", companies, yearsToShow,
                 cf -> cf.getFreeCashFlow());
         System.out.println("─".repeat(160));
+    }
+
+    private void printOperatingMetricsComparison(List<Company> companies, int yearsToShow) {
+        // Check if any companies have operating metrics
+        boolean hasOperatingMetrics = companies.stream()
+                .anyMatch(c -> !c.getOperatingMetrics().isEmpty());
+
+        if (!hasOperatingMetrics) {
+            return; // Skip if no companies have operating metrics
+        }
+
+        System.out.println();
+        System.out.println("═".repeat(160));
+        System.out.println("AIRLINE OPERATING METRICS");
+        System.out.println("═".repeat(160));
+
+        // Print header
+        System.out.printf("%-40s", "");
+        for (Company company : companies) {
+            List<AirlineOperatingMetrics> metrics = company.getOperatingMetrics();
+            if (metrics.isEmpty()) continue;
+
+            int startIdx = Math.max(0, metrics.size() - yearsToShow);
+            List<AirlineOperatingMetrics> recentMetrics = metrics.subList(startIdx, metrics.size());
+
+            for (AirlineOperatingMetrics metric : recentMetrics) {
+                System.out.printf("%12s", company.getTicker() + " " + metric.getFiscalYear());
+            }
+        }
+        System.out.println();
+        System.out.println("─".repeat(160));
+
+        // CAPACITY & TRAFFIC
+        System.out.println("CAPACITY & TRAFFIC (in millions)");
+        printOperatingMetricLine("Available Seat Miles (ASMs)", companies, yearsToShow,
+                m -> m.getAvailableSeatMiles() / 1_000_000);
+        printOperatingMetricLine("Revenue Passenger Miles (RPMs)", companies, yearsToShow,
+                m -> m.getRevenuePassengerMiles() / 1_000_000);
+        printOperatingMetricLine("Passengers Carried", companies, yearsToShow,
+                m -> m.getPassengersCarried() / 1_000_000);
+        printOperatingMetricLineInt("Departures", companies, yearsToShow,
+                AirlineOperatingMetrics::getDepartures);
+        printOperatingMetricLineInt("Aircraft at Period End", companies, yearsToShow,
+                AirlineOperatingMetrics::getAircraftAtPeriodEnd);
+
+        // PERFORMANCE METRICS
+        System.out.println("\nPERFORMANCE METRICS");
+        printOperatingMetricLinePercent("Load Factor", companies, yearsToShow,
+                AirlineOperatingMetrics::getLoadFactor);
+        printOperatingMetricLine("Yield (¢)", companies, yearsToShow,
+                AirlineOperatingMetrics::getYield);
+
+        // UNIT ECONOMICS (cents per ASM)
+        System.out.println("\nUNIT ECONOMICS (cents per ASM)");
+        printOperatingMetricLine("Passenger Revenue (PRASM)", companies, yearsToShow,
+                AirlineOperatingMetrics::getPassengerRevenuePerASM);
+        printOperatingMetricLine("Total Revenue (RASM)", companies, yearsToShow,
+                AirlineOperatingMetrics::getTotalRevenuePerASM);
+        printOperatingMetricLine("Operating Cost (CASM)", companies, yearsToShow,
+                AirlineOperatingMetrics::getOperatingCostPerASM);
+        printOperatingMetricLine("CASM ex-Fuel", companies, yearsToShow,
+                AirlineOperatingMetrics::getCasmExcludingFuel);
+
+        System.out.println("─".repeat(160));
+    }
+
+    private void printOperatingMetricLine(String label, List<Company> companies, int yearsToShow,
+                                          java.util.function.Function<AirlineOperatingMetrics, Double> valueExtractor) {
+        System.out.printf("%-40s", label);
+        for (Company company : companies) {
+            List<AirlineOperatingMetrics> metrics = company.getOperatingMetrics();
+            if (metrics.isEmpty()) continue;
+
+            int startIdx = Math.max(0, metrics.size() - yearsToShow);
+            List<AirlineOperatingMetrics> recentMetrics = metrics.subList(startIdx, metrics.size());
+
+            for (AirlineOperatingMetrics metric : recentMetrics) {
+                double value = valueExtractor.apply(metric);
+                if (value == 0) {
+                    System.out.printf("%12s", "-");
+                } else {
+                    System.out.printf("%,12.2f", value);
+                }
+            }
+        }
+        System.out.println();
+    }
+
+    private void printOperatingMetricLineInt(String label, List<Company> companies, int yearsToShow,
+                                             java.util.function.Function<AirlineOperatingMetrics, Integer> valueExtractor) {
+        System.out.printf("%-40s", label);
+        for (Company company : companies) {
+            List<AirlineOperatingMetrics> metrics = company.getOperatingMetrics();
+            if (metrics.isEmpty()) continue;
+
+            int startIdx = Math.max(0, metrics.size() - yearsToShow);
+            List<AirlineOperatingMetrics> recentMetrics = metrics.subList(startIdx, metrics.size());
+
+            for (AirlineOperatingMetrics metric : recentMetrics) {
+                int value = valueExtractor.apply(metric);
+                if (value == 0) {
+                    System.out.printf("%12s", "-");
+                } else {
+                    System.out.printf("%,12d", value);
+                }
+            }
+        }
+        System.out.println();
+    }
+
+    private void printOperatingMetricLinePercent(String label, List<Company> companies, int yearsToShow,
+                                                 java.util.function.Function<AirlineOperatingMetrics, Double> valueExtractor) {
+        System.out.printf("%-40s", label);
+        for (Company company : companies) {
+            List<AirlineOperatingMetrics> metrics = company.getOperatingMetrics();
+            if (metrics.isEmpty()) continue;
+
+            int startIdx = Math.max(0, metrics.size() - yearsToShow);
+            List<AirlineOperatingMetrics> recentMetrics = metrics.subList(startIdx, metrics.size());
+
+            for (AirlineOperatingMetrics metric : recentMetrics) {
+                double value = valueExtractor.apply(metric);
+                if (value == 0) {
+                    System.out.printf("%12s", "-");
+                } else {
+                    System.out.printf("%11.1f%%", value);
+                }
+            }
+        }
+        System.out.println();
     }
 
     private void printComparisonLine(String label, List<Company> companies, int yearsToShow,
