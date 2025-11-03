@@ -6,6 +6,7 @@ import com.financialanalysis.model.FinancialMetrics;
 import com.financialanalysis.model.FinancialStatement;
 import com.financialanalysis.parser.FinancialDataExtractor;
 import com.financialanalysis.parser.PDFParser;
+import com.financialanalysis.parser.XBRLParser;
 import com.financialanalysis.storage.DataStore;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -21,81 +22,147 @@ import java.util.concurrent.Callable;
         description = "Financial Analysis CLI - Analyze company 10-K filings")
 public class CLI implements Callable<Integer> {
 
-    @Command(name = "add", description = "Add a company by parsing 10-K PDF files")
+    @Command(name = "add", description = "Add a company by parsing 10-K files (PDF or XBRL)")
     public int addCompany(
             @Parameters(index = "0", description = "Company name") String companyName,
             @Parameters(index = "1", description = "Company ticker symbol") String ticker,
-            @Option(names = {"-d", "--directory"}, description = "Directory containing 10-K PDFs",
+            @Option(names = {"-d", "--directory"}, description = "Directory containing 10-K files",
                     defaultValue = "data/10k-pdfs") String directory,
             @Option(names = {"-i", "--industry"}, description = "Industry/sector") String industry,
-            @Option(names = {"-y", "--year"}, description = "Fiscal year (if single PDF)") Integer year
+            @Option(names = {"-f", "--format"}, description = "File format: pdf or xbrl (default: pdf)",
+                    defaultValue = "pdf") String format,
+            @Option(names = {"-y", "--year"}, description = "Fiscal year (if single file)") Integer year
     ) {
         System.out.println("Adding company: " + companyName + " (" + ticker + ")");
+        System.out.println("Format: " + format.toUpperCase());
 
         try {
             DataStore dataStore = new DataStore();
             Company company = new Company(companyName, ticker, industry);
 
-            // Find PDF files in directory
             File dir = new File(directory);
             if (!dir.exists() || !dir.isDirectory()) {
                 System.err.println("Error: Directory not found: " + directory);
                 return 1;
             }
 
-            // Filter PDF files by ticker symbol in filename
-            File[] pdfFiles = dir.listFiles((d, name) ->
-                name.toLowerCase().endsWith(".pdf") &&
-                name.toLowerCase().contains(ticker.toLowerCase())
-            );
-
-            if (pdfFiles == null || pdfFiles.length == 0) {
-                System.err.println("Error: No PDF files found for ticker '" + ticker + "' in directory: " + directory);
-                System.err.println("Please ensure PDF filenames contain the ticker symbol (e.g., " + ticker + "_10K_2023.pdf)");
-                return 1;
+            // Process based on format
+            if ("xbrl".equalsIgnoreCase(format)) {
+                return processXBRLFiles(company, dir, ticker, dataStore);
+            } else {
+                return processPDFFiles(company, dir, ticker, year, dataStore);
             }
 
-            System.out.println("Found " + pdfFiles.length + " PDF file(s) to process");
-
-            PDFParser pdfParser = new PDFParser();
-            FinancialDataExtractor extractor = new FinancialDataExtractor();
-
-            for (File pdfFile : pdfFiles) {
-                System.out.println("Processing: " + pdfFile.getName());
-
-                try {
-                    // Extract text from PDF
-                    String text = pdfParser.extractText(pdfFile);
-
-                    // Extract fiscal year from filename or use provided year
-                    int fiscalYear = (year != null) ? year : extractYearFromFilename(pdfFile.getName());
-
-                    // Extract financial data
-                    FinancialStatement statement = extractor.extract(text, fiscalYear);
-                    company.addFinancialStatement(statement);
-
-                    System.out.println("  ✓ Extracted data for fiscal year " + statement.getFiscalYear());
-                } catch (IOException e) {
-                    System.err.println("  ✗ Error processing " + pdfFile.getName() + ": " + e.getMessage());
-                }
-            }
-
-            if (company.getFinancialStatements().isEmpty()) {
-                System.err.println("Error: No financial data extracted from PDFs");
-                return 1;
-            }
-
-            // Save company data
-            dataStore.saveCompany(company);
-            System.out.println("\n✓ Successfully added company: " + companyName + " with " +
-                    company.getFinancialStatements().size() + " year(s) of data");
-
-            return 0;
         } catch (Exception e) {
             System.err.println("Error: " + e.getMessage());
             e.printStackTrace();
             return 1;
         }
+    }
+
+    /**
+     * Process PDF files for a company
+     */
+    private int processPDFFiles(Company company, File dir, String ticker, Integer year, DataStore dataStore) throws Exception {
+        // Filter PDF files by ticker symbol in filename
+        File[] pdfFiles = dir.listFiles((d, name) ->
+            name.toLowerCase().endsWith(".pdf") &&
+            name.toLowerCase().contains(ticker.toLowerCase())
+        );
+
+        if (pdfFiles == null || pdfFiles.length == 0) {
+            System.err.println("Error: No PDF files found for ticker '" + ticker + "' in directory: " + dir.getPath());
+            System.err.println("Please ensure PDF filenames contain the ticker symbol (e.g., " + ticker + "_10K_2023.pdf)");
+            return 1;
+        }
+
+        System.out.println("Found " + pdfFiles.length + " PDF file(s) to process");
+
+        PDFParser pdfParser = new PDFParser();
+        FinancialDataExtractor extractor = new FinancialDataExtractor();
+
+        for (File pdfFile : pdfFiles) {
+            System.out.println("Processing: " + pdfFile.getName());
+
+            try {
+                // Extract text from PDF
+                String text = pdfParser.extractText(pdfFile);
+
+                // Extract fiscal year from filename or use provided year
+                int fiscalYear = (year != null) ? year : extractYearFromFilename(pdfFile.getName());
+
+                // Extract financial data
+                FinancialStatement statement = extractor.extract(text, fiscalYear);
+                company.addFinancialStatement(statement);
+
+                System.out.println("  ✓ Extracted data for fiscal year " + statement.getFiscalYear());
+            } catch (Exception e) {
+                System.err.println("  ✗ Error processing " + pdfFile.getName() + ": " + e.getMessage());
+            }
+        }
+
+        if (company.getFinancialStatements().isEmpty()) {
+            System.err.println("Error: No financial data extracted from PDFs");
+            return 1;
+        }
+
+        // Save company data
+        dataStore.saveCompany(company);
+        System.out.println("\n✓ Successfully added company: " + company.getName() + " with " +
+                company.getFinancialStatements().size() + " year(s) of data");
+
+        return 0;
+    }
+
+    /**
+     * Process XBRL files for a company
+     */
+    private int processXBRLFiles(Company company, File dir, String ticker, DataStore dataStore) throws Exception {
+        // Filter XBRL files by ticker symbol in filename
+        File[] xbrlFiles = dir.listFiles((d, name) ->
+            name.toLowerCase().endsWith(".xml") &&
+            name.toLowerCase().contains(ticker.toLowerCase()) &&
+            !name.contains("_cal") && !name.contains("_def") &&
+            !name.contains("_lab") && !name.contains("_pre")
+        );
+
+        if (xbrlFiles == null || xbrlFiles.length == 0) {
+            System.err.println("Error: No XBRL files found for ticker '" + ticker + "' in directory: " + dir.getPath());
+            System.err.println("Please ensure XBRL filenames contain the ticker symbol (e.g., " + ticker.toLowerCase() + "-20231231.xml)");
+            System.err.println("See XBRL_DOWNLOAD_GUIDE.md for download instructions");
+            return 1;
+        }
+
+        System.out.println("Found " + xbrlFiles.length + " XBRL file(s) to process");
+
+        XBRLParser xbrlParser = new XBRLParser();
+
+        for (File xbrlFile : xbrlFiles) {
+            System.out.println("Processing: " + xbrlFile.getName());
+
+            try {
+                // Parse XBRL file
+                FinancialStatement statement = xbrlParser.parse(xbrlFile);
+                company.addFinancialStatement(statement);
+
+                System.out.println("  ✓ Extracted data for fiscal year " + statement.getFiscalYear());
+            } catch (Exception e) {
+                System.err.println("  ✗ Error processing " + xbrlFile.getName() + ": " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+
+        if (company.getFinancialStatements().isEmpty()) {
+            System.err.println("Error: No financial data extracted from XBRL files");
+            return 1;
+        }
+
+        // Save company data
+        dataStore.saveCompany(company);
+        System.out.println("\n✓ Successfully added company: " + company.getName() + " with " +
+                company.getFinancialStatements().size() + " year(s) of data");
+
+        return 0;
     }
 
     @Command(name = "analyze", description = "Analyze a company's financial metrics")

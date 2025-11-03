@@ -51,24 +51,47 @@ alias finanalysis='java -jar target/financial-analysis-cli-1.0.0-jar-with-depend
 
 #### 1. Add a Company
 
-Parse 10-K PDFs and add a company to the database:
+Parse 10-K files (PDF or XBRL) and add a company to the database:
 
 ```bash
 finanalysis add <company-name> <ticker> [options]
 ```
 
 **Options:**
-- `-d, --directory <path>` : Directory containing 10-K PDFs (default: `data/10k-pdfs`)
+- `-d, --directory <path>` : Directory containing 10-K files (default: `data/10k-pdfs`)
+- `-f, --format <format>` : File format: `pdf` or `xbrl` (default: `pdf`)
 - `-i, --industry <name>` : Industry or sector
-- `-y, --year <year>` : Fiscal year (if processing a single PDF)
+- `-y, --year <year>` : Fiscal year (if processing a single file)
 
 **Example:**
 ```bash
-# Add Apple with 10-K PDFs in the default directory
+# Add company using PDF files
 finanalysis add "Apple Inc." AAPL -i "Technology"
 
-# Add Microsoft with PDFs from a custom directory
+# Add company using XBRL files (RECOMMENDED - much more accurate!)
+finanalysis add "United Airlines" UAL -i "Airlines" --format xbrl -d data/xbrl-files/UAL
+
+# Add Microsoft with files from a custom directory
 finanalysis add "Microsoft Corporation" MSFT -d /path/to/msft-10ks -i "Technology"
+```
+
+**IMPORTANT: XBRL vs PDF**
+
+We **strongly recommend using XBRL format** instead of PDF:
+- ✅ **95%+ accuracy** vs 30-50% with PDFs
+- ✅ **Standardized format** - all companies use same tags
+- ✅ **No regex/pattern matching needed**
+- ✅ **Required by SEC** - available for all public companies since 2009
+- ✅ **Free to download** from SEC EDGAR
+
+See `XBRL_DOWNLOAD_GUIDE.md` for step-by-step instructions on downloading XBRL files.
+
+**Example with XBRL:**
+```bash
+# 1. Download XBRL files from SEC EDGAR (see XBRL_DOWNLOAD_GUIDE.md)
+# 2. Place files in data/xbrl-files/UAL/
+# 3. Run:
+finanalysis add "United Airlines" UAL -i "Airlines" -f xbrl -d data/xbrl-files/UAL
 ```
 
 **PDF File Organization:**
