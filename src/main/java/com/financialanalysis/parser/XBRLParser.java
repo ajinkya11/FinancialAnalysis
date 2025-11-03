@@ -381,6 +381,7 @@ public class XBRLParser {
      */
     private boolean isContextForYear(Element contextElement, int fiscalYear) {
         String yearStr = String.valueOf(fiscalYear);
+        String contextId = contextElement.getAttributeValue("id");
 
         // Look for period with matching year
         Element period = contextElement.getChild("period", contextElement.getNamespace());
@@ -392,11 +393,14 @@ public class XBRLParser {
             if (endDate != null && endDate.getText().contains(yearStr)) {
                 // Check it's an annual period (starts with year-01-01)
                 if (startDate != null && startDate.getText().contains(yearStr + "-01-01")) {
+                    logger.debug("Context {} MATCHED year {} (period: {} to {})",
+                        contextId, fiscalYear, startDate.getText(), endDate.getText());
                     return true;
                 }
             }
 
             if (instant != null && instant.getText().contains(yearStr + "-12-31")) {
+                logger.debug("Context {} MATCHED year {} (instant: {})", contextId, fiscalYear, instant.getText());
                 return true;
             }
         }
@@ -489,12 +493,14 @@ public class XBRLParser {
                 Element ctx = contextIterator.next();
                 String contextId = ctx.getAttributeValue("id");
                 if (contextId != null && isContextForYear(ctx, fiscalYear)) {
-                    // Check if this context has the required segment
-                    Element segment = ctx.getDescendants(new org.jdom2.filter.ElementFilter("segment")).next();
-                    if (segment != null) {
+                    // Check if this context has the required segment (search in xbrli namespace)
+                    Iterator<Element> segmentIterator = ctx.getDescendants(new org.jdom2.filter.ElementFilter("segment", xbrliNs)).iterator();
+                    if (segmentIterator.hasNext()) {
+                        Element segment = segmentIterator.next();
                         Element explicitMember = segment.getChild("explicitMember", segment.getNamespace());
                         if (explicitMember != null && explicitMember.getText().contains(segmentMember)) {
                             validContexts.add(contextId);
+                            logger.debug("Found context {} for year {} with segment {}", contextId, fiscalYear, segmentMember);
                         }
                     }
                 }
@@ -641,13 +647,23 @@ public class XBRLParser {
         DetailedIncomeStatement stmt = new DetailedIncomeStatement(fiscalYear);
 
         // Detect if this is inline XBRL format (check for ix namespace)
-        boolean isInlineXBRL = root.getNamespace("ix") != null ||
-                               root.getAdditionalNamespaces().stream().anyMatch(n -> "ix".equals(n.getPrefix()));
+        Namespace ixNs = root.getNamespace("ix");
+        if (ixNs == null) {
+            for (Namespace ns_check : root.getAdditionalNamespaces()) {
+                if ("ix".equals(ns_check.getPrefix())) {
+                    ixNs = ns_check;
+                    break;
+                }
+            }
+        }
+        boolean isInlineXBRL = ixNs != null;
+
+        logger.info("Inline XBRL detection for year {}: ix namespace {}", fiscalYear, isInlineXBRL ? "FOUND" : "NOT FOUND");
 
         double totalRevenue, passengerRevenue, cargoRevenue, otherRevenue;
 
         if (isInlineXBRL) {
-            logger.info("Detected inline XBRL format - using context-aware extraction for year {}", fiscalYear);
+            logger.info("Using context-aware inline XBRL extraction for year {}", fiscalYear);
 
             // Find contexts for this year (consolidated, no segments)
             Set<String> consolidatedContexts = findContextsForYear(root, fiscalYear);
