@@ -244,9 +244,9 @@ public class CLI implements Callable<Integer> {
 
     @Command(name = "compare", description = "Compare multiple companies side by side")
     public int compareCompanies(
-            @Parameters(description = "Company ticker symbols to compare") String... tickers,
             @Option(names = {"-y", "--years"}, description = "Number of years to compare (default: 3)",
-                    defaultValue = "3") int yearsToCompare
+                    defaultValue = "3") int yearsToCompare,
+            @Parameters(description = "Company ticker symbols to compare") String... tickers
     ) {
         if (tickers.length < 2) {
             System.err.println("Error: Please provide at least 2 companies to compare");
