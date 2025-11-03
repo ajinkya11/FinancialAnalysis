@@ -516,13 +516,37 @@ public class XBRLParser {
             // We have total and components - calculate other if missing
             if (otherRevenue == 0) {
                 otherRevenue = totalRevenue - passengerRevenue - cargoRevenue;
+                logger.debug("Calculated other revenue from total: ${}", otherRevenue / 1_000_000);
             }
-            // Verify total matches sum (within rounding)
-            double calculatedTotal = passengerRevenue + cargoRevenue + otherRevenue;
-            if (Math.abs(calculatedTotal - totalRevenue) > 1000) { // Allow $1k rounding error
-                logger.warn("Revenue mismatch for year {}: Total={}, Sum={}. Using calculated sum.",
-                    fiscalYear, totalRevenue / 1_000_000, calculatedTotal / 1_000_000);
-                totalRevenue = calculatedTotal;
+
+            // Check if the calculation makes sense (other shouldn't be negative)
+            if (otherRevenue < 0) {
+                // This means "totalRevenue" is actually wrong - it's probably just "other revenue"
+                // The real total should be the sum of components
+                logger.warn("Detected revenue misclassification for year {}: extracted total (${}) is less than passenger+cargo (${})",
+                    fiscalYear,
+                    totalRevenue / 1_000_000,
+                    (passengerRevenue + cargoRevenue) / 1_000_000);
+                logger.info("Treating extracted 'total' as 'other revenue' and recalculating");
+
+                // The "totalRevenue" we extracted is actually "otherRevenue"
+                otherRevenue = totalRevenue;
+                totalRevenue = passengerRevenue + cargoRevenue + otherRevenue;
+
+                logger.info("Corrected revenue for year {}: Total=${} (Pax: ${}, Cargo: ${}, Other: ${})",
+                    fiscalYear,
+                    totalRevenue / 1_000_000,
+                    passengerRevenue / 1_000_000,
+                    cargoRevenue / 1_000_000,
+                    otherRevenue / 1_000_000);
+            } else {
+                // Verify total matches sum (within rounding)
+                double calculatedTotal = passengerRevenue + cargoRevenue + otherRevenue;
+                if (Math.abs(calculatedTotal - totalRevenue) > 1000) { // Allow $1k rounding error
+                    logger.warn("Revenue mismatch for year {}: Total={}, Sum={}. Using calculated sum.",
+                        fiscalYear, totalRevenue / 1_000_000, calculatedTotal / 1_000_000);
+                    totalRevenue = calculatedTotal;
+                }
             }
         } else if (passengerRevenue > 0) {
             // We have components but not total - sum them
