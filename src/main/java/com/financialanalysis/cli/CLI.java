@@ -1455,11 +1455,11 @@ public class CLI implements Callable<Integer> {
         printCashFlowComparisonLine("Net Income", companies, yearsToShow,
                 cf -> cf.getNetIncome());
         printCashFlowComparisonLine("Depreciation & Amortization", companies, yearsToShow,
-                cf -> cf.getDepreciationAndAmortization());
+                cf -> cf.getDepreciation() + cf.getAmortization());
         printCashFlowComparisonLine("Change in Air Traffic Liability", companies, yearsToShow,
                 cf -> cf.getChangeInAirTrafficLiability());
         printCashFlowComparisonLine("Net Cash from Operations", companies, yearsToShow,
-                cf -> cf.getNetCashFromOperatingActivities());
+                cf -> cf.getNetCashFromOperating());
 
         // INVESTING ACTIVITIES
         System.out.println("\nINVESTING ACTIVITIES");
@@ -1468,16 +1468,16 @@ public class CLI implements Callable<Integer> {
         printCashFlowComparisonLine("Aircraft Purchases", companies, yearsToShow,
                 cf -> cf.getAircraftPurchases());
         printCashFlowComparisonLine("Net Cash from Investing", companies, yearsToShow,
-                cf -> cf.getNetCashFromInvestingActivities());
+                cf -> cf.getNetCashFromInvesting());
 
         // FINANCING ACTIVITIES
         System.out.println("\nFINANCING ACTIVITIES");
         printCashFlowComparisonLine("Proceeds from Debt", companies, yearsToShow,
-                cf -> cf.getProceedsFromDebt());
+                cf -> cf.getProceedsFromDebtIssuance());
         printCashFlowComparisonLine("Debt Repayments", companies, yearsToShow,
                 cf -> cf.getDebtRepayments());
         printCashFlowComparisonLine("Net Cash from Financing", companies, yearsToShow,
-                cf -> cf.getNetCashFromFinancingActivities());
+                cf -> cf.getNetCashFromFinancing());
 
         // SUMMARY
         System.out.println("\nCASH FLOW SUMMARY");
