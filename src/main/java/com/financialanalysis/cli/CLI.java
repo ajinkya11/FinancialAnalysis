@@ -1,6 +1,7 @@
 package com.financialanalysis.cli;
 
 import com.financialanalysis.analyzer.MetricsCalculator;
+import com.financialanalysis.glossary.Glossary;
 import com.financialanalysis.model.Company;
 import com.financialanalysis.model.FinancialMetrics;
 import com.financialanalysis.model.FinancialStatement;
@@ -15,7 +16,9 @@ import picocli.CommandLine.Parameters;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 
 @Command(name = "finanalysis", mixinStandardHelpOptions = true, version = "1.0",
@@ -224,6 +227,13 @@ public class CLI implements Callable<Integer> {
 
             printCashFlowQualityMetrics(metricsList);
 
+            // Print glossary tip
+            System.out.println();
+            System.out.println("═".repeat(100));
+            System.out.println("\033[1;36mℹ TIP:\033[0m Need help understanding a metric? Use: \033[1mfinanalysis glossary <term>\033[0m");
+            System.out.println("      Example: finanalysis glossary ROE");
+            System.out.println("═".repeat(100));
+
             return 0;
         } catch (Exception e) {
             System.err.println("Error: " + e.getMessage());
@@ -234,7 +244,9 @@ public class CLI implements Callable<Integer> {
 
     @Command(name = "compare", description = "Compare multiple companies side by side")
     public int compareCompanies(
-            @Parameters(description = "Company ticker symbols to compare") String... tickers
+            @Parameters(description = "Company ticker symbols to compare") String... tickers,
+            @Option(names = {"-y", "--years"}, description = "Number of years to compare (default: 3)",
+                    defaultValue = "3") int yearsToCompare
     ) {
         if (tickers.length < 2) {
             System.err.println("Error: Please provide at least 2 companies to compare");
@@ -280,7 +292,7 @@ public class CLI implements Callable<Integer> {
             printComparisonOverview(companies, allMetrics);
             System.out.println();
 
-            printComparisonTable("PROFITABILITY - Margins (Latest Year)", companies, allMetrics,
+            printComparisonTable("PROFITABILITY - Margins", companies, allMetrics, yearsToCompare,
                     new String[]{"Gross Margin", "Operating Margin", "Net Margin", "EBITDA Margin"},
                     new MetricExtractor[]{
                             m -> MetricsCalculator.formatPercentage(m.getGrossMargin()),
@@ -289,7 +301,7 @@ public class CLI implements Callable<Integer> {
                             m -> MetricsCalculator.formatPercentage(m.getEbitdaMargin())
                     });
 
-            printComparisonTable("PROFITABILITY - Returns on Capital (Latest Year)", companies, allMetrics,
+            printComparisonTable("PROFITABILITY - Returns on Capital", companies, allMetrics, yearsToCompare,
                     new String[]{"ROA", "ROE", "ROIC", "ROCE"},
                     new MetricExtractor[]{
                             m -> MetricsCalculator.formatPercentage(m.getReturnOnAssets()),
@@ -298,7 +310,7 @@ public class CLI implements Callable<Integer> {
                             m -> MetricsCalculator.formatPercentage(m.getReturnOnCapitalEmployed())
                     });
 
-            printComparisonTable("GROWTH - 3-Year Average", companies, allMetrics,
+            printComparisonTable("GROWTH - Year-over-Year", companies, allMetrics, yearsToCompare,
                     new String[]{"Revenue Growth", "OpIncome Growth", "NetIncome Growth", "EPS Growth"},
                     new MetricExtractor[]{
                             m -> MetricsCalculator.formatPercentage(m.getRevenueGrowthRate()),
@@ -307,7 +319,7 @@ public class CLI implements Callable<Integer> {
                             m -> MetricsCalculator.formatPercentage(m.getEpsGrowthRate())
                     });
 
-            printComparisonTable("LIQUIDITY (Latest Year)", companies, allMetrics,
+            printComparisonTable("LIQUIDITY", companies, allMetrics, yearsToCompare,
                     new String[]{"Current Ratio", "Quick Ratio", "Cash Ratio", "OCF Ratio"},
                     new MetricExtractor[]{
                             m -> MetricsCalculator.formatRatio(m.getCurrentRatio()),
@@ -316,7 +328,7 @@ public class CLI implements Callable<Integer> {
                             m -> MetricsCalculator.formatRatio(m.getOperatingCashFlowRatio())
                     });
 
-            printComparisonTable("WORKING CAPITAL - Days (Latest Year, Lower is Better)", companies, allMetrics,
+            printComparisonTable("WORKING CAPITAL - Days (Lower is Better)", companies, allMetrics, yearsToCompare,
                     new String[]{"DSO", "DIO", "Cash Conv Cycle"},
                     new MetricExtractor[]{
                             m -> MetricsCalculator.formatDays(m.getDaysSalesOutstanding()),
@@ -324,7 +336,7 @@ public class CLI implements Callable<Integer> {
                             m -> MetricsCalculator.formatDays(m.getCashConversionCycle())
                     });
 
-            printComparisonTable("LEVERAGE & SOLVENCY (Latest Year)", companies, allMetrics,
+            printComparisonTable("LEVERAGE & SOLVENCY", companies, allMetrics, yearsToCompare,
                     new String[]{"Debt/Equity", "Debt/Assets", "Interest Coverage", "EBITDA Coverage"},
                     new MetricExtractor[]{
                             m -> MetricsCalculator.formatRatio(m.getDebtToEquity()),
@@ -333,7 +345,7 @@ public class CLI implements Callable<Integer> {
                             m -> MetricsCalculator.formatRatio(m.getEbitdaCoverage())
                     });
 
-            printComparisonTable("EFFICIENCY - Turnover Ratios (Latest Year)", companies, allMetrics,
+            printComparisonTable("EFFICIENCY - Turnover Ratios", companies, allMetrics, yearsToCompare,
                     new String[]{"Asset Turnover", "Fixed Asset", "Inventory", "Receivables"},
                     new MetricExtractor[]{
                             m -> MetricsCalculator.formatRatio(m.getAssetTurnover()),
@@ -342,7 +354,7 @@ public class CLI implements Callable<Integer> {
                             m -> MetricsCalculator.formatRatio(m.getReceivablesTurnover())
                     });
 
-            printComparisonTable("CASH FLOW (Latest Year)", companies, allMetrics,
+            printComparisonTable("CASH FLOW", companies, allMetrics, yearsToCompare,
                     new String[]{"OCF Margin", "FCF Margin", "CapEx/Revenue", "CapEx/OCF"},
                     new MetricExtractor[]{
                             m -> MetricsCalculator.formatPercentage(m.getOperatingCashFlowMargin()),
@@ -351,7 +363,7 @@ public class CLI implements Callable<Integer> {
                             m -> MetricsCalculator.formatPercentage(m.getCapexToOperatingCashFlow())
                     });
 
-            printComparisonTable("QUALITY OF EARNINGS (Latest Year, Higher is Better)", companies, allMetrics,
+            printComparisonTable("QUALITY OF EARNINGS (Higher is Better)", companies, allMetrics, yearsToCompare,
                     new String[]{"OCF/NetIncome", "FCF/NetIncome", "CF-ROA", "CF-ROE"},
                     new MetricExtractor[]{
                             m -> MetricsCalculator.formatRatio(m.getCashFlowToNetIncome()),
@@ -359,6 +371,15 @@ public class CLI implements Callable<Integer> {
                             m -> MetricsCalculator.formatPercentage(m.getCashFlowReturnOnAssets()),
                             m -> MetricsCalculator.formatPercentage(m.getCashFlowReturnOnEquity())
                     });
+
+            // Print glossary tip
+            System.out.println();
+            System.out.println("═".repeat(160));
+            System.out.println("\033[1;36mℹ TIP:\033[0m Need help understanding a metric? Use the glossary command:");
+            System.out.println("      \033[1mfinanalysis glossary <term>\033[0m  - Look up a specific term (e.g., finanalysis glossary ROE)");
+            System.out.println("      \033[1mfinanalysis glossary -l\033[0m      - List all available terms by category");
+            System.out.println("      \033[1mfinanalysis glossary -s <word>\033[0m - Search for terms containing a keyword");
+            System.out.println("═".repeat(160));
 
             return 0;
         } catch (Exception e) {
@@ -414,29 +435,57 @@ public class CLI implements Callable<Integer> {
 
     private void printComparisonTable(String title, List<Company> companies,
                                       List<List<FinancialMetrics>> allMetrics,
+                                      int yearsToCompare,
                                       String[] metricNames, MetricExtractor[] extractors) {
         System.out.println();
-        System.out.println("═".repeat(120));
+        System.out.println("═".repeat(160));
         System.out.println(title);
-        System.out.println("═".repeat(120));
+        System.out.println("═".repeat(160));
 
-        // Print header
+        // Determine the actual years to display (from most recent backwards)
+        int maxYears = yearsToCompare;
+
+        // Print header with company names
         System.out.print(String.format("%-30s", "Metric"));
-        for (Company company : companies) {
-            System.out.print(String.format("%-25s", company.getTicker()));
+        for (int companyIdx = 0; companyIdx < companies.size(); companyIdx++) {
+            Company company = companies.get(companyIdx);
+            List<FinancialMetrics> metrics = allMetrics.get(companyIdx);
+
+            // Show ticker and year range
+            int startIdx = Math.max(0, metrics.size() - maxYears);
+            int endYear = metrics.get(metrics.size() - 1).getFiscalYear();
+            int startYear = metrics.get(startIdx).getFiscalYear();
+            String header = String.format("%s (%d-%d)", company.getTicker(), startYear, endYear);
+
+            // Calculate width needed for this company's data (15 chars per year)
+            int width = Math.min(maxYears, metrics.size()) * 15;
+            System.out.print(String.format("%-" + width + "s", header));
         }
         System.out.println();
-        System.out.println("─".repeat(120));
 
-        // Print each metric row
-        for (int i = 0; i < metricNames.length; i++) {
-            System.out.print(String.format("%-30s", metricNames[i]));
+        // Print year headers
+        System.out.print(String.format("%-30s", ""));
+        for (List<FinancialMetrics> metrics : allMetrics) {
+            int startIdx = Math.max(0, metrics.size() - maxYears);
+            for (int i = metrics.size() - 1; i >= startIdx; i--) {
+                System.out.print(String.format("%-15s", metrics.get(i).getFiscalYear()));
+            }
+        }
+        System.out.println();
+        System.out.println("─".repeat(160));
+
+        // Print each metric row with multi-year data
+        for (int metricIdx = 0; metricIdx < metricNames.length; metricIdx++) {
+            System.out.print(String.format("%-30s", metricNames[metricIdx]));
 
             for (List<FinancialMetrics> metrics : allMetrics) {
-                // Get latest year metrics
-                FinancialMetrics latest = metrics.get(metrics.size() - 1);
-                String value = extractors[i].extract(latest);
-                System.out.print(String.format("%-25s", value));
+                int startIdx = Math.max(0, metrics.size() - maxYears);
+
+                // Print values from most recent to oldest
+                for (int i = metrics.size() - 1; i >= startIdx; i--) {
+                    String value = extractors[metricIdx].extract(metrics.get(i));
+                    System.out.print(String.format("%-15s", value));
+                }
             }
             System.out.println();
         }
@@ -477,6 +526,137 @@ public class CLI implements Callable<Integer> {
             e.printStackTrace();
             return 1;
         }
+    }
+
+    @Command(name = "glossary", description = "Look up financial metrics and abbreviations")
+    public int showGlossary(
+            @Parameters(index = "0", description = "Term to look up (optional)", arity = "0..1") String term,
+            @Option(names = {"-l", "--list"}, description = "List all terms by category") boolean listAll,
+            @Option(names = {"-s", "--search"}, description = "Search for terms containing keyword") String searchKeyword
+    ) {
+        try {
+            // Search mode
+            if (searchKeyword != null && !searchKeyword.isEmpty()) {
+                List<Glossary.GlossaryEntry> results = Glossary.search(searchKeyword);
+                if (results.isEmpty()) {
+                    System.out.println("No terms found matching: " + searchKeyword);
+                    return 0;
+                }
+
+                System.out.println("═".repeat(100));
+                System.out.println("GLOSSARY SEARCH RESULTS: " + searchKeyword);
+                System.out.println("═".repeat(100));
+                System.out.println();
+
+                for (Glossary.GlossaryEntry entry : results) {
+                    printGlossaryEntry(entry);
+                    System.out.println();
+                }
+                return 0;
+            }
+
+            // List all mode
+            if (listAll) {
+                System.out.println("═".repeat(100));
+                System.out.println("FINANCIAL METRICS GLOSSARY - ALL TERMS BY CATEGORY");
+                System.out.println("═".repeat(100));
+                System.out.println();
+
+                Map<String, List<String>> categories = Glossary.getCategories();
+                for (Map.Entry<String, List<String>> category : categories.entrySet()) {
+                    System.out.println("▶ " + category.getKey().toUpperCase());
+                    System.out.println("─".repeat(100));
+
+                    for (String abbr : category.getValue()) {
+                        Glossary.GlossaryEntry entry = Glossary.lookup(abbr);
+                        if (entry != null) {
+                            System.out.println(String.format("  %-20s - %s",
+                                    formatTerm(entry.getAbbreviation()),
+                                    entry.getFullName()));
+                        }
+                    }
+                    System.out.println();
+                }
+
+                System.out.println("TIP: Use 'finanalysis glossary <term>' to see detailed information");
+                System.out.println("     Example: finanalysis glossary ROE");
+                return 0;
+            }
+
+            // Lookup specific term
+            if (term != null && !term.isEmpty()) {
+                Glossary.GlossaryEntry entry = Glossary.lookup(term);
+                if (entry == null) {
+                    System.out.println("Term not found: " + term);
+                    System.out.println();
+                    System.out.println("Try:");
+                    System.out.println("  finanalysis glossary -l           (list all terms)");
+                    System.out.println("  finanalysis glossary -s <keyword> (search for terms)");
+                    return 1;
+                }
+
+                System.out.println("═".repeat(100));
+                System.out.println("GLOSSARY ENTRY");
+                System.out.println("═".repeat(100));
+                System.out.println();
+                printGlossaryEntry(entry);
+                return 0;
+            }
+
+            // No arguments - show usage
+            System.out.println("Financial Metrics Glossary");
+            System.out.println();
+            System.out.println("Usage:");
+            System.out.println("  finanalysis glossary <term>      Look up a specific term (e.g., ROE, EBITDA)");
+            System.out.println("  finanalysis glossary -l          List all terms by category");
+            System.out.println("  finanalysis glossary -s <word>   Search for terms");
+            System.out.println();
+            System.out.println("Examples:");
+            System.out.println("  finanalysis glossary ROE");
+            System.out.println("  finanalysis glossary \"Current Ratio\"");
+            System.out.println("  finanalysis glossary -s cash");
+            System.out.println("  finanalysis glossary -l");
+
+            return 0;
+        } catch (Exception e) {
+            System.err.println("Error: " + e.getMessage());
+            e.printStackTrace();
+            return 1;
+        }
+    }
+
+    private void printGlossaryEntry(Glossary.GlossaryEntry entry) {
+        System.out.println(formatTerm(entry.getAbbreviation()) + " - " + entry.getFullName());
+        System.out.println("─".repeat(100));
+
+        // Wrap description text to fit width
+        String[] words = entry.getDescription().split(" ");
+        StringBuilder line = new StringBuilder();
+        int lineWidth = 0;
+        int maxWidth = 98;
+
+        for (String word : words) {
+            if (lineWidth + word.length() + 1 > maxWidth) {
+                System.out.println(line.toString());
+                line = new StringBuilder(word);
+                lineWidth = word.length();
+            } else {
+                if (line.length() > 0) {
+                    line.append(" ");
+                    lineWidth++;
+                }
+                line.append(word);
+                lineWidth += word.length();
+            }
+        }
+        if (line.length() > 0) {
+            System.out.println(line.toString());
+        }
+    }
+
+    private String formatTerm(String term) {
+        // Use ANSI codes to make term bold and underlined
+        return "\033[1;4m" + term + "\033[0m";
     }
 
     // Helper methods for printing comprehensive tables
