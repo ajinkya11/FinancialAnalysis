@@ -796,24 +796,36 @@ public class AirlineHTMLParser {
         // Calculate RASM if not already set
         if (metrics.getTotalRevenuePerASM() == 0 && incomeStatement != null && incomeStatement.getTotalOperatingRevenue() > 0) {
             // RASM = (Total Revenue / ASMs) * 100 to get cents
-            double rasm = (incomeStatement.getTotalOperatingRevenue() / asms) * 100.0;
+            double revenueInDollars = incomeStatement.getTotalOperatingRevenue();
+            double rasm = (revenueInDollars / asms) * 100.0;
             metrics.setTotalRevenuePerASM(rasm);
-            logger.info("Calculated RASM: {} cents", String.format("%.2f", rasm));
+            logger.info("Calculated RASM: {} cents (Revenue=${} / ASMs={} * 100)",
+                String.format("%.2f", rasm),
+                String.format("%.0fM", revenueInDollars / 1_000_000),
+                String.format("%.0fM", asms / 1_000_000));
         }
 
         // Calculate PRASM if not already set
         if (metrics.getPassengerRevenuePerASM() == 0 && incomeStatement != null && incomeStatement.getPassengerRevenue() > 0) {
-            double prasm = (incomeStatement.getPassengerRevenue() / asms) * 100.0;
+            double passengerRevenue = incomeStatement.getPassengerRevenue();
+            double prasm = (passengerRevenue / asms) * 100.0;
             metrics.setPassengerRevenuePerASM(prasm);
-            logger.info("Calculated PRASM: {} cents", String.format("%.2f", prasm));
+            logger.info("Calculated PRASM: {} cents (PaxRev=${} / ASMs={} * 100)",
+                String.format("%.2f", prasm),
+                String.format("%.0fM", passengerRevenue / 1_000_000),
+                String.format("%.0fM", asms / 1_000_000));
         }
 
         // Calculate CASM if not already set
         if (metrics.getOperatingCostPerASM() == 0 && incomeStatement != null && incomeStatement.getTotalOperatingExpenses() > 0) {
             // CASM = (Total Operating Expenses / ASMs) * 100 to get cents
-            double casm = (incomeStatement.getTotalOperatingExpenses() / asms) * 100.0;
+            double expenses = incomeStatement.getTotalOperatingExpenses();
+            double casm = (expenses / asms) * 100.0;
             metrics.setOperatingCostPerASM(casm);
-            logger.info("Calculated CASM: {} cents", String.format("%.2f", casm));
+            logger.info("Calculated CASM: {} cents (OpEx=${} / ASMs={} * 100)",
+                String.format("%.2f", casm),
+                String.format("%.0fM", expenses / 1_000_000),
+                String.format("%.0fM", asms / 1_000_000));
         }
 
         // Calculate CASM-ex (excluding fuel) if not already set
