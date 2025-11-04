@@ -3,6 +3,10 @@ target/
 *.jar
 *.war
 *.ear
+*.nar
+*.zip
+*.tar.gz
+*.rar
 
 # IDE
 .idea/
@@ -11,6 +15,9 @@ target/
 *.swp
 *.swo
 *~
+.project
+.classpath
+.settings/
 
 # OS
 .DS_Store
@@ -27,3 +34,21 @@ data/xbrl-test/
 
 # Logs
 *.log
+logs/
+
+# Output files
+*.csv
+*.json
+reports/
+monthly_reports/
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# Cache directory
+cache/
+
+# Test outputs
+test-output/
