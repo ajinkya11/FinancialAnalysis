@@ -1478,12 +1478,14 @@ public class CLI implements Callable<Integer> {
 
         // OPERATING REVENUE
         System.out.println("OPERATING REVENUE");
-        printComparisonLine("Passenger Revenue", companies, yearsToShow,
-                stmt -> stmt.getPassengerRevenue());
-        printComparisonLine("Cargo Revenue", companies, yearsToShow,
-                stmt -> stmt.getCargoRevenue());
-        printComparisonLine("Other Revenue", companies, yearsToShow,
-                stmt -> stmt.getOtherOperatingRevenue());
+        // NOTE: Revenue breakdown temporarily hidden due to data accuracy issues
+        // TODO: Re-enable once inline XBRL extraction is verified working
+        // printComparisonLine("Passenger Revenue", companies, yearsToShow,
+        //         stmt -> stmt.getPassengerRevenue());
+        // printComparisonLine("Cargo Revenue", companies, yearsToShow,
+        //         stmt -> stmt.getCargoRevenue());
+        // printComparisonLine("Other Revenue", companies, yearsToShow,
+        //         stmt -> stmt.getOtherOperatingRevenue());
         printComparisonLine("Total Operating Revenue", companies, yearsToShow,
                 stmt -> stmt.getTotalOperatingRevenue());
 
